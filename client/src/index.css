@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-size: 16px;
+}
+
+@property --angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1f2c34 #0b131a;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: #0b131a;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #1f2c34;
+  border-radius: 9999px;
+}
+
+body {
+  @apply bg-[#111b21] text-[#e9edef] antialiased;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.border-animate {
+  position: relative;
+  border-radius: 28px;
+  padding: 0;
+  overflow: visible;
+}
+
+.border-animate::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#0b141a, #0b141a) padding-box,
+    conic-gradient(
+      from var(--angle, 0deg),
+      rgba(21, 32, 40, 0.6) 0deg,
+      rgba(21, 32, 40, 0.6) 5deg,
+      rgba(37, 211, 102, 0.95) 6deg,
+      rgba(94, 135, 255, 0.9) 12deg,
+      rgba(0, 255, 200, 0.9) 18deg,
+      rgba(21, 32, 40, 0.4) 24deg,
+      rgba(21, 32, 40, 0.4) 360deg
+    )
+    border-box;
+  animation: border-rotate 4s linear infinite;
+  box-shadow: 0 0 12px rgba(37, 211, 102, 0.18);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.border-animate > * {
+  position: relative;
+  z-index: 2;
+  border-radius: calc(28px - 4px);
+}
+
+@keyframes border-rotate {
+  0% {
+    --angle: 0deg;
+  }
+  100% {
+    --angle: 360deg;
+  }
+}

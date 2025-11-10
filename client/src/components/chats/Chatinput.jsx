@@ -636,7 +636,7 @@ const ChatInput = React.forwardRef(
               </button>
               <div
                 className={cn(
-                  "absolute left-1/2 top-[-46px] z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#23323c] bg-[#111b21] px-2 py-1 shadow-lg shadow-black/30",
+                  "absolute left-[154%] top-[-46px] z-20 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#23323c] bg-[#111b21] px-2 py-1 shadow-lg shadow-black/30",
                   extrasOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
                   "transition-opacity duration-200",
                 )}
@@ -697,7 +697,7 @@ const ChatInput = React.forwardRef(
                 <FiPlus className="h-5 w-5" />
               </button>
               {desktopAttachOpen && (
-                <div className="pointer-events-auto absolute bottom-full left-1/2 z-30 flex min-w-[220px] -translate-x-1/2 translate-y-[-12px] items-center gap-2 rounded-2xl border border-[#23323c] bg-[#111b21]/95 px-3 py-2 shadow-xl shadow-black/40">
+              <div className="pointer-events-auto absolute bottom-full left-1/2 z-30 inline-flex -translate-x-1/2 translate-y-[-12px] items-center gap-2 rounded-2xl border border-[#23323c] bg-[#111b21]/95 px-2 py-2 shadow-xl shadow-black/40">
                   <button
                     type="button"
                     onClick={() => {

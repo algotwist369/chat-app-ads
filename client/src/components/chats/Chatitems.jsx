@@ -7,10 +7,12 @@ import React, {
     useRef,
     useState,
 } from "react";
-import { FiMoreVertical, FiPaperclip, FiCheck, FiPlay, FiPause } from "react-icons/fi";
+import { FiPaperclip, FiCheck, FiPlay, FiPause, FiDownload } from "react-icons/fi";
 import { BiCheckDouble } from "react-icons/bi";
+import { IoInformationCircleOutline } from "react-icons/io5";
 import { cn } from "../common/utils";
 import { REACTION_OPTIONS, REACTION_LABELS } from "../common/reactions";
+import { GrEmoji } from "react-icons/gr";
 
 export const SystemBubble = memo(function SystemBubble({ message }) {
     return (
@@ -59,14 +61,14 @@ const ReactionPill = memo(function ReactionPill({ emoji, count, label, selfReact
             type="button"
             onClick={handleClick}
             className={cn(
-                "inline-flex items-center gap-1 rounded-full border border-transparent bg-[#0b141a]/40 px-2 py-1 text-[0.7rem] text-[#dee5e7] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:px-2.5 sm:py-1.5 sm:text-xs",
+                "inline-flex items-center gap-1 rounded-full border border-transparent bg-[#0b141a]/40 text-[0.7rem] text-[#dee5e7] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60  sm:text-xs p-1",
                 onToggle && "hover:bg-[#23323c]",
                 selfReacted && "border-[#25d366]/60 bg-[#0b141a]/60 text-[#25d366]",
             )}
             aria-pressed={selfReacted}
             aria-label={label ? `${label}${typeof count === "number" ? ` ${count}` : ""}` : undefined}
         >
-            <Emoji symbol={emoji} label={label ?? REACTION_LABELS[emoji]} className="text-lg sm:text-xl" />
+            <Emoji symbol={emoji} label={label ?? REACTION_LABELS[emoji]} className="text-sm sm:text-sm" />
             {typeof count === "number" && (
                 <span className={cn("text-[0.68rem] sm:text-[0.7rem]", selfReacted ? "text-[#25d366]" : "text-[#bfc7c9]")}>
                     {count}
@@ -90,7 +92,7 @@ const ReactionPicker = memo(
         return (
             <div
                 ref={ref}
-                className="absolute bottom-full left-[-100px] z-20 mb-2 flex max-w-[min(320px,88vw)] -translate-x-1/2 flex-wrap items-center justify-center gap-1.5 rounded-3xl border border-[#1f2c34] bg-[#0b141a]/95 px-2 py-1 text-lg shadow-lg shadow-black/30 sm:flex-nowrap sm:gap-2 sm:px-2.5 sm:py-1.5"
+                className="absolute top-[-100px] left-[20%] z-20 mb-2 flex w-max max-w-[92vw] flex-wrap items-center justify-center gap-1.5 rounded-3xl border border-[#1f2c34] bg-[#0b141a]/95 px-2 py-1 text-lg shadow-lg shadow-black/30 sm:max-w-[min(320px,88vw)] sm:flex-nowrap sm:gap-2 sm:px-3 sm:py-1.5"
             >
                 {REACTION_OPTIONS.map((option) => (
                     <button
@@ -123,32 +125,43 @@ const formatBytes = (bytes) => {
     return `${fixed} ${units[unitIndex]}`;
 };
 
-const renderImage = (item, key) => (
-    <figure key={key} className="overflow-hidden rounded-2xl">
-        <img
-            src={item.src}
-            alt={item.alt ?? item.name ?? "Shared image"}
-            className="h-auto max-h-64 w-full rounded-2xl object-cover"
-            loading="lazy"
-        />
-    </figure>
-);
+const getMediaSource = (item) => item?.src ?? item?.url ?? item?.preview ?? item?.thumbnail ?? null;
 
-const renderVideo = (item, key) => (
-    <div key={key} className="flex flex-col gap-2 rounded-2xl bg-[#111b21]/60 p-2">
-        <video src={item.src} controls className="max-h-64 w-full rounded-2xl bg-black object-contain" preload="metadata">
-            Your browser does not support the video tag.
-        </video>
-        <a
-            href={item.src}
-            download={item.name ?? "video"}
-            className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#25d366] hover:text-[#1dd460]"
-        >
-            <FiPaperclip className="h-4 w-4" />
-            Download video
-        </a>
-    </div>
-);
+const renderImage = (item, key) => {
+    const src = getMediaSource(item);
+    if (!src) return null;
+    return (
+        <figure key={key} className="overflow-hidden rounded-2xl">
+            <img
+                src={src}
+                alt={item.alt ?? item.name ?? "Shared image"}
+                className="h-auto max-h-64 w-full rounded-2xl object-cover"
+                loading="lazy"
+                decoding="async"
+            />
+        </figure>
+    );
+};
+
+const renderVideo = (item, key) => {
+    const src = getMediaSource(item);
+    if (!src) return null;
+    return (
+        <div key={key} className="flex flex-col gap-2 rounded-2xl bg-[#111b21]/60 p-2">
+            <video src={src} controls className="max-h-64 w-full rounded-2xl bg-black object-contain" preload="metadata">
+                Your browser does not support the video tag.
+            </video>
+            <a
+                href={src}
+                download={item.name ?? "video"}
+                className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#25d366] hover:text-[#1dd460]"
+            >
+                <FiPaperclip className="h-4 w-4" />
+                Download video
+            </a>
+        </div>
+    );
+};
 
 const formatAudioDuration = (seconds) => {
     if (!Number.isFinite(seconds)) return "--:--";
@@ -205,36 +218,41 @@ const AudioAttachment = memo(function AudioAttachment({ item, attachmentKey }) {
     }, []);
 
     return (
-        <div key={attachmentKey} className="flex flex-col gap-3 rounded-2xl bg-[#111b21]/60 p-3">
-            <div className="flex items-center justify-between gap-3">
+        <div
+            key={attachmentKey}
+            className="flex flex-col gap-3 rounded-2xl bg-[#111b21]/60 p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4"
+        >
+            <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:flex-col sm:items-center sm:gap-2">
                 <button
                     type="button"
                     onClick={togglePlayback}
                     className={cn(
-                        "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+                        "inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:h-11 sm:w-11",
                         isPlaying
                             ? "bg-[#ff6b6b]/20 text-[#ffb3c1] hover:bg-[#ff6b6b]/25"
                             : "bg-[#1f2c34] text-[#e9edef] hover:bg-[#23323c]",
                     )}
+                    aria-label={isPlaying ? "Pause audio" : "Play audio"}
                 >
-                    {isPlaying ? <FiPause className="h-4 w-4" /> : <FiPlay className="h-4 w-4" />}
-                    {isPlaying ? "Pause" : "Play audio"}
+                    {isPlaying ? <FiPause className="h-5 w-5" /> : <FiPlay className="h-5 w-5" />}
                 </button>
-                <span className="text-xs font-medium text-[#8696a0]">{formatAudioDuration(duration)}</span>
-            </div>
-            <audio ref={audioRef} src={item.src} controls preload="metadata" className="w-full" />
-            <div className="flex items-center justify-between gap-2">
-                <span className="max-w-[12rem] truncate text-sm font-medium text-[#e9edef]">
-                    {item.name ?? "Audio file"}
+                <span className="text-xs font-medium text-[#8696a0] sm:text-[0.7rem]">
+                    {formatAudioDuration(duration)}
                 </span>
                 <a
                     href={item.src}
                     download={item.name ?? "audio"}
-                    className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#25d366] hover:text-[#1dd460]"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#1f2c34] text-[#25d366] transition-colors duration-150 hover:bg-[#23323c] hover:text-[#1dd460] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:h-11 sm:w-11"
+                    aria-label="Download audio"
                 >
-                    <FiPaperclip className="h-4 w-4" />
-                    Download
+                    <FiDownload className="h-5 w-5" />
                 </a>
+            </div>
+            <div className="flex w-full flex-col gap-2 sm:flex-1">
+                <audio ref={audioRef} src={item.src} controls preload="metadata" className="w-full" />
+                <span className="max-w-full truncate text-sm font-medium text-[#e9edef] sm:text-base">
+                    {item.name ?? "Audio file"}
+                </span>
             </div>
         </div>
     );
@@ -242,31 +260,39 @@ const AudioAttachment = memo(function AudioAttachment({ item, attachmentKey }) {
 
 AudioAttachment.displayName = "AudioAttachment";
 
-const renderAudio = (item, key) => <AudioAttachment key={key} item={item} attachmentKey={key} />;
+const renderAudio = (item, key) => {
+    const src = getMediaSource(item);
+    if (!src) return null;
+    return <AudioAttachment key={key} item={{ ...item, src }} attachmentKey={key} />;
+};
 
-const renderFile = (item, key) => (
-    <a
-        key={key}
-        href={item.src}
-        target="_blank"
-        rel="noopener noreferrer"
-        download={item.name ?? "attachment"}
-        className="flex items-center justify-between gap-3 rounded-2xl border border-[#1f2c34] bg-[#0b141a]/70 px-4 py-3 text-left shadow-sm shadow-black/30 transition-colors duration-200 hover:bg-[#1f2c34]"
-    >
-        <span className="flex items-center gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#23323c] text-[#25d366]">
-                <FiPaperclip className="h-5 w-5" />
-            </span>
-            <span className="flex flex-col">
-                <span className="max-w-[12rem] truncate text-sm font-medium text-[#e9edef]">
-                    {item.name ?? "Shared file"}
+const renderFile = (item, key) => {
+    const src = getMediaSource(item);
+    if (!src) return null;
+    return (
+        <a
+            key={key}
+            href={src}
+            target="_blank"
+            rel="noopener noreferrer"
+            download={item.name ?? "attachment"}
+            className="flex items-center justify-between gap-3 rounded-2xl border border-[#1f2c34] bg-[#0b141a]/70 px-4 py-3 text-left shadow-sm shadow-black/30 transition-colors duration-200 hover:bg-[#1f2c34]"
+        >
+            <span className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#23323c] text-[#25d366]">
+                    <FiPaperclip className="h-5 w-5" />
                 </span>
-                {item.size ? <span className="text-xs text-[#667781]">{formatBytes(item.size)}</span> : null}
+                <span className="flex flex-col">
+                    <span className="max-w-[12rem] truncate text-sm font-medium text-[#e9edef]">
+                        {item.name ?? "Shared file"}
+                    </span>
+                    {item.size ? <span className="text-xs text-[#667781]">{formatBytes(item.size)}</span> : null}
+                </span>
             </span>
-        </span>
-        <span className="text-xs font-medium uppercase tracking-wide text-[#25d366]">Download</span>
-    </a>
-);
+            <span className="text-xs font-medium uppercase tracking-wide text-[#25d366]"><FiDownload className="h-6 w-6" /></span>
+        </a>
+    );
+};
 
 const mediaRenderer = {
     image: renderImage,
@@ -277,9 +303,28 @@ const mediaRenderer = {
 
 const renderMediaItem = (item, index) => {
     if (!item) return null;
-    const key = item.id ?? item.src ?? `media-${index}`;
-    const renderer = item.type ? mediaRenderer[item.type] : undefined;
-    if (!renderer || !item.src) return null;
+    const key = item.id ?? item.src ?? item.url ?? `media-${index}`;
+
+    const inferType = () => {
+        if (item.type && mediaRenderer[item.type]) return item.type;
+        const mime = item.mimeType ?? item.contentType ?? "";
+        if (mime.startsWith("image/")) return "image";
+        if (mime.startsWith("video/")) return "video";
+        if (mime.startsWith("audio/")) return "audio";
+        if (mime) return "file";
+
+        const src = getMediaSource(item);
+        if (typeof src === "string") {
+            const lowerSrc = src.toLowerCase();
+            if (/\.(jpe?g|png|gif|webp|bmp|svg)$/.test(lowerSrc)) return "image";
+            if (/\.(mp4|webm|ogg|mov|mkv)$/.test(lowerSrc)) return "video";
+            if (/\.(mp3|wav|m4a|aac|flac|ogg)$/.test(lowerSrc)) return "audio";
+        }
+        return "file";
+    };
+
+    const renderer = mediaRenderer[inferType()];
+    if (!renderer) return null;
     return renderer(item, key);
 };
 
@@ -343,10 +388,37 @@ ReplyPreview.displayName = "ReplyPreview";
 
 export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn, onContext, onReact }, ref) {
     const [isPickerOpen, setIsPickerOpen] = useState(false);
+    const [showTouchActions, setShowTouchActions] = useState(false);
     const pickerRef = useRef(null);
     const isTouchRef = useRef(false);
+    const touchActionsTimeoutRef = useRef(null);
 
     const statusMeta = useMemo(() => getStatusMeta(message?.status), [message?.status]);
+    const hasMeta =
+        Boolean(message?.time) || Boolean(message?.isEdited) || Boolean(isOwn && statusMeta?.Icon);
+
+    const renderMeta = useCallback(
+        (extraClassName) => {
+            if (!hasMeta) return null;
+            return (
+                <span
+                    className={cn(
+                        "flex items-center gap-1 text-[0.65rem] uppercase tracking-wide text-[#c2cbce]/80",
+                        extraClassName,
+                    )}
+                >
+                    {message.isEdited && <span className="text-[0.6rem] text-[#b0bcc1]">Edited</span>}
+                    {message.time ? <span className="normal-case text-[#c2cbce]">{message.time}</span> : null}
+                    {isOwn && statusMeta?.Icon ? (
+                        <statusMeta.Icon
+                            className={cn("h-3.5 w-3.5 text-[#c2cbce]", statusMeta.className)}
+                        />
+                    ) : null}
+                </span>
+            );
+        },
+        [hasMeta, isOwn, message.isEdited, message.time, statusMeta],
+    );
 
     const closePicker = useCallback(() => {
         setIsPickerOpen(false);
@@ -377,12 +449,33 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
 
     const handlePointerDown = useCallback((event) => {
         isTouchRef.current = event.pointerType === "touch";
+        if (isTouchRef.current) {
+            setShowTouchActions(true);
+            if (touchActionsTimeoutRef.current) {
+                clearTimeout(touchActionsTimeoutRef.current);
+            }
+            touchActionsTimeoutRef.current = setTimeout(() => {
+                setShowTouchActions(false);
+            }, 2500);
+        } else {
+            setShowTouchActions(false);
+        }
     }, []);
+
+    useEffect(
+        () => () => {
+            if (touchActionsTimeoutRef.current) {
+                clearTimeout(touchActionsTimeoutRef.current);
+            }
+        },
+        [],
+    );
 
     const handleOpenPickerForTouch = useCallback(() => {
         if (onReact) {
             setIsPickerOpen(true);
         }
+        setShowTouchActions(true);
     }, [onReact]);
 
     const handleContextMenu = useCallback(
@@ -411,66 +504,76 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
             onPointerDown={handlePointerDown}
             onContextMenu={handleContextMenu}
             className={cn(
-                "mr-4 group relative flex w-full max-w-full flex-col gap-2 rounded-3xl px-3 py-2 transition-all duration-200 sm:px-4",
-                "max-w-[calc(100%-2.4rem)] sm:max-w-[calc(100%-6rem)] md:max-w-[520px]",
+                "group relative flex max-w-[92%] flex-col gap-1 rounded-2xl px-3 py-2 text-sm leading-relaxed shadow-lg transition-all duration-200 sm:max-w-[75%] sm:px-4 sm:py-3 md:max-w-[65%] lg:max-w-[55%]",
                 isOwn
-                    ? "bg-red-500 ml-auto mr-1 bg-[#005c4b] text-[#e9edef] rounded-br-md shadow-lg shadow-[#005c4b]/40 sm:mr-2"
-                    : "mr-auto ml-1 bg-[#1f2c34] text-[#e9edef] rounded-bl-md shadow-lg shadow-black/20 sm:ml-2",
+                    ? "self-end bg-[#005c4b] text-[#e9edef] rounded-br-md shadow-[#005c4b]/40 mr-2 sm:mr-3"
+                    : "self-start bg-[#1f2c34] text-[#e9edef] rounded-bl-md shadow-black/20 ml-2 sm:ml-3",
             )}
         >
-            <header className="flex items-center justify-end gap-3">
-                <div className="flex items-center gap-2">
-                    <span className="text-[0.68rem] text-[#c2cbce]">{message.time}</span>
-                    {message.isEdited && (
-                        <span className="text-[0.6rem] uppercase tracking-wide text-[#667781]">Edited</span>
+            {onContext && (
+                <div
+                    className={cn(
+                        "absolute right-1 top-1 z-10 flex items-center gap-1 rounded-full bg-[#0b141a]/90 px-1 py-0.5 text-[#95a5aa] shadow-sm shadow-black/30 transition duration-150 sm:right-2 sm:top-2 sm:px-1.5 sm:py-1",
+                        showTouchActions || isPickerOpen
+                            ? "pointer-events-auto opacity-100 translate-y-0"
+                            : "pointer-events-none opacity-0 translate-y-1 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-y-[-2px] sm:translate-y-1",
                     )}
-                    {onReact && (
-                        <div className="relative inline-flex">
-                            <button
-                                type="button"
-                                data-reaction-trigger
-                                onClick={togglePicker}
-                                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-[#95a5aa] transition-colors duration-200 hover:bg-[#0f1b21] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:h-8 sm:w-8"
-                                aria-label="Add reaction"
-                            >
-                                <Emoji symbol="😊" label="Add reaction" className="text-lg" />
-                            </button>
-                            {isPickerOpen && (
-                                <ReactionPicker
-                                    ref={pickerRef}
-                                    onSelect={(option) => {
-                                        onReact?.(message, option.emoji);
-                                        setIsPickerOpen(false);
-                                    }}
-                                />
-                            )}
-                        </div>
+                >
+                    <button
+                        type="button"
+                        onClick={(event) => onContext(message, event.currentTarget.getBoundingClientRect())}
+                        className="rounded-full p-1 transition-colors duration-200 hover:bg-[#0f1b21] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
+                        aria-label="Message options"
+                    >
+                        <IoInformationCircleOutline className="h-4 w-4" />
+                    </button>
+                </div>
+            )}
+            {onReact && (
+                <div
+                    className={cn(
+                        "absolute bottom-[-18px] left-0 z-10 flex items-center justify-center rounded-full bg-[#0b141a]/90 text-[#95a5aa] shadow-sm shadow-black/30 transition duration-150 hover:text-[#25d366] focus-within:text-[#25d366] sm:bottom-[-16px] sm:left-0",
+                        isPickerOpen || showTouchActions
+                            ? "pointer-events-auto opacity-100 translate-y-0"
+                            : "pointer-events-none opacity-0 translate-y-1 group-hover:pointer-events-auto group-hover:opacity-100 group-hover:translate-y-[-2px] sm:translate-y-1",
                     )}
-                    {onContext && (
+                >
+                    <div className="relative inline-flex">
                         <button
                             type="button"
-                            onClick={(event) => onContext(message, event.currentTarget.getBoundingClientRect())}
-                            className="hidden rounded-full p-1 text-[#95a5aa] transition-colors duration-200 hover:bg-[#0f1b21] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 group-hover:inline-flex"
-                            aria-label="Message options"
+                            data-reaction-trigger
+                            onClick={togglePicker}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
+                            aria-label="Add reaction"
                         >
-                            <FiMoreVertical className="h-4 w-4" />
+                            <GrEmoji className="h-3 w-3" />
                         </button>
-                    )}
+                        {isPickerOpen && (
+                            <ReactionPicker
+                                ref={pickerRef}
+                                onSelect={(option) => {
+                                    onReact?.(message, option.emoji);
+                                    setIsPickerOpen(false);
+                                }}
+                            />
+                        )}
+                    </div>
                 </div>
-            </header>
+            )}
 
             <ReplyPreview reply={message.replyTo} isOwn={isOwn} />
 
             <MediaPreview media={message.media} />
 
             {message.content ? (
-                <p className="whitespace-pre-line break-words break-all text-sm leading-relaxed sm:break-normal">
-                    {message.content}
-                </p>
+                <div className="flex items-end gap-2">
+                    <p className="flex-1 whitespace-pre-line break-words sm:break-normal">{message.content}</p>
+                    {renderMeta("ml-auto shrink-0 whitespace-nowrap text-right")}
+                </div>
             ) : null}
 
             {message.reactions?.length > 0 && (
-                <footer className="flex flex-wrap gap-2">
+                <div className="mt-1 flex flex-wrap gap-2">
                     {message.reactions.map((reaction) => (
                         <ReactionPill
                             key={reaction.emoji}
@@ -478,19 +581,10 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
                             onToggle={onReact ? (emoji) => onReact(message, emoji) : undefined}
                         />
                     ))}
-                </footer>
+                </div>
             )}
 
-            {isOwn && statusMeta && (
-                <span
-                    className={cn(
-                        "absolute -bottom-6 right-2 flex items-center justify-center",
-                        statusMeta.className,
-                    )}
-                >
-                    <statusMeta.Icon className="h-4 w-4 sm:h-5 sm:w-5" />
-                </span>
-            )}
+            {!message.content && renderMeta("mt-1 self-end")}
         </article>
     );
 });

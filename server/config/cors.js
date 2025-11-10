@@ -1,3 +1,13 @@
+const DEFAULT_ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+  "https://73.d0s369.co.in",
+  "https://www.73.d0s369.co.in",
+  "https://adminspaadvisor.in",
+  "https://www.adminspaadvisor.in",
+  "https://28c.d0s369.co.in",
+];
+
 const parseOrigins = (raw) => {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.filter(Boolean);
@@ -15,7 +25,11 @@ const resolveAllowedOrigins = () => {
     process.env.FRONTEND_ORIGINS ??
     process.env.FRONTEND_ORIGIN ??
     "";
-  return parseOrigins(raw);
+  const parsed = parseOrigins(raw);
+  if (parsed.length > 0) {
+    return parsed;
+  }
+  return DEFAULT_ALLOWED_ORIGINS;
 };
 
 const buildCorsOriginHandler = (allowedOrigins) => {

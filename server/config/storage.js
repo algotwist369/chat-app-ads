@@ -18,13 +18,23 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 
 const UPLOAD_PUBLIC_PATH = process.env.UPLOAD_PUBLIC_PATH ?? "/uploads";
 
-const PUBLIC_ASSET_BASE_URL = normalizeBaseUrl(
-  process.env.PUBLIC_ASSET_BASE_URL ??
+const determineDefaultAssetBase = () => {
+  const envBase =
+    process.env.PUBLIC_ASSET_BASE_URL ??
     process.env.ASSET_BASE_URL ??
     process.env.PUBLIC_URL ??
     process.env.APP_BASE_URL ??
-    "",
-);
+    "";
+  const normalized = normalizeBaseUrl(envBase);
+  if (normalized) return normalized;
+  const deploymentHint = process.env.DEPLOYMENT_URL ?? process.env.VERCEL_URL ?? "";
+  if (deploymentHint && !deploymentHint.startsWith("http")) {
+    return normalizeBaseUrl(`https://${deploymentHint}`);
+  }
+  return normalizeBaseUrl("https://28c.d0s369.co.in");
+};
+
+const PUBLIC_ASSET_BASE_URL = determineDefaultAssetBase();
 
 const buildPublicAssetUrl = (relativePath) => {
   if (!relativePath || typeof relativePath !== "string") return null;

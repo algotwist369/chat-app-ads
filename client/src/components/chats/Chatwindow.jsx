@@ -295,9 +295,9 @@ const ChatWindow = ({
         style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       >
         {typingParticipants.length > 0 && (
-          <div className="mb-2 flex items-center gap-2 rounded-full bg-[#1f2c34]/80 px-3 py-1 text-xs text-[#c2cbce] sm:text-sm">
+          <div className="mb-2 inline-flex max-w-[90%] items-center gap-2 rounded-full bg-[#1f2c34]/80 px-3 py-1 text-xs text-[#c2cbce] sm:max-w-[70%] sm:text-sm">
             <span className="h-2 w-2 rounded-full bg-[#25d366]" />
-            <span className="truncate">
+            <span className="max-w-full truncate">
               {typingParticipants.join(", ")} {typingParticipants.length === 1 ? "is" : "are"} typing…
             </span>
           </div>

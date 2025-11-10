@@ -12,6 +12,7 @@ const {
   markConversationRead,
   ensureConversation,
   getConversationById,
+  setConversationMuteState,
 } = require("../services/conversationService");
 const { serializeMessage, serializeConversation } = require("./serializers");
 
@@ -43,6 +44,24 @@ const registerSocketHandlers = (io) => {
       } catch (error) {
         socket.emit("error", { message: error.message });
       }
+    });
+
+    socket.on("conversation:typing", ({ conversationId, actorType, isTyping = true }, callback) => {
+      if (!conversationId || !["manager", "customer"].includes(actorType)) {
+        if (callback) callback({ ok: false, message: "Invalid typing payload." });
+        return;
+      }
+
+      const payload = {
+        conversationId,
+        actorType,
+        actorId: actorType === "manager" ? socket.data.managerId ?? null : socket.data.customerId ?? null,
+        isTyping: Boolean(isTyping),
+        timestamp: new Date().toISOString(),
+      };
+
+      socket.to(`conversation:${conversationId}`).emit("conversation:typing", payload);
+      if (callback) callback({ ok: true });
     });
 
     socket.on("message:send", async (payload, callback) => {
@@ -100,6 +119,33 @@ const registerSocketHandlers = (io) => {
         const serialized = serializeMessage(message);
         io.to(`conversation:${serialized.conversationId}`).emit("message:reaction", serialized);
         if (callback) callback({ ok: true, message: serialized });
+      } catch (error) {
+        if (callback) callback({ ok: false, message: error.message });
+        else socket.emit("error", { message: error.message });
+      }
+    });
+
+    socket.on("conversation:mute", async ({ conversationId, actorType, muted }, callback) => {
+      try {
+        const conversation = await setConversationMuteState(conversationId, actorType, muted);
+        const serialized = serializeConversation(conversation, []);
+        const room = `conversation:${serialized.id}`;
+        io.to(room).emit("conversation:muted", {
+          conversation: serialized,
+          actorType,
+          muted: serialized.mutedBy?.[actorType] ?? Boolean(muted),
+        });
+        io.to(`manager:${serialized.managerId}`).emit("conversation:muted", {
+          conversation: serialized,
+          actorType,
+          muted: serialized.mutedBy?.manager ?? false,
+        });
+        io.to(`customer:${serialized.customerId}`).emit("conversation:muted", {
+          conversation: serialized,
+          actorType,
+          muted: serialized.mutedBy?.customer ?? false,
+        });
+        if (callback) callback({ ok: true, conversation: serialized });
       } catch (error) {
         if (callback) callback({ ok: false, message: error.message });
         else socket.emit("error", { message: error.message });

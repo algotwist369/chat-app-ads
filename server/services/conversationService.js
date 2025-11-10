@@ -191,6 +191,31 @@ const updateConversationMetadata = async (conversationId, metadata) =>
 const findManagerByBusinessSlug = async (slug) =>
   Manager.findOne({ businessSlug: toBusinessSlug(slug ?? "") }).lean();
 
+const setConversationMuteState = async (conversationId, actorType, muted) => {
+  if (!mongoose.Types.ObjectId.isValid(conversationId)) {
+    throw Object.assign(new Error("Invalid conversation identifier."), { status: 400 });
+  }
+  if (!["manager", "customer"].includes(actorType)) {
+    throw Object.assign(new Error("actorType must be manager or customer."), { status: 400 });
+  }
+
+  const updateKey = actorType === "manager" ? "mutedForManager" : "mutedForCustomer";
+
+  const conversation = await Conversation.findByIdAndUpdate(
+    conversationId,
+    { $set: { [updateKey]: Boolean(muted) } },
+    { new: true },
+  )
+    .populate("manager")
+    .populate("customer");
+
+  if (!conversation) {
+    throw Object.assign(new Error("Conversation not found."), { status: 404 });
+  }
+
+  return conversation;
+};
+
 module.exports = {
   ensureConversation,
   listManagerConversations,
@@ -204,6 +229,7 @@ module.exports = {
   findManagerByBusinessSlug,
   ensureManagerExists,
   ensureCustomerExists,
+  setConversationMuteState,
 };
 
 

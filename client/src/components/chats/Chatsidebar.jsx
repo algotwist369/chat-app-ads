@@ -212,6 +212,7 @@ const ChatSidebar = ({
   currentUserType = null,
   onSettings = () => {},
   onLogout = () => {},
+  onToggleMute = () => {},
 }) => {
   const [activeTab, setActiveTab] = React.useState("all");
   const [query, setQuery] = React.useState("");
@@ -518,23 +519,17 @@ const ChatSidebar = ({
               </button>
             </header>
             <div className="flex flex-col gap-2">
-              {[
-                "Pin chat",
-                contextChat.muted ? "Unmute notifications" : "Mute notifications",
-                "Mark as read",
-                "Archive chat",
-                "Clear messages",
-                "Delete chat",
-              ].map((action) => (
-                <button
-                  key={action}
-                  type="button"
-                  className="flex items-center justify-between rounded-2xl px-4 py-3 text-sm text-[#e9edef] transition-colors duration-200 hover:bg-[#23323c] hover:text-[#25d366]"
-                >
-                  <span>{action}</span>
-                  <FiMoreVertical className="h-4 w-4 text-[#54656f]" />
-                </button>
-              ))}
+              <button
+                type="button"
+                className="flex items-center justify-between rounded-2xl px-4 py-3 text-sm text-[#e9edef] transition-colors duration-200 hover:bg-[#23323c] hover:text-[#25d366]"
+                onClick={() => {
+                  onToggleMute?.(contextChat, !contextChat.muted);
+                  setContextChat(null);
+                }}
+              >
+                <span>{contextChat.muted ? "Unmute notifications" : "Mute notifications"}</span>
+                <FiMoreVertical className="h-4 w-4 text-[#54656f]" />
+              </button>
             </div>
           </div>
         </div>

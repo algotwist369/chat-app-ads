@@ -5,8 +5,7 @@ import Heading from "../components/common/Heading";
 import Button from "../components/common/Button";
 import { cn } from "../components/common/utils";
 import { useAuth } from "../context/AuthContext";
-import { addCustomer, findManagerBySlug } from "../lib/mockDb";
-import { ensureConversation } from "../lib/chatStore";
+import { getWorkspaceBySlug, joinCustomer } from "../lib/customers";
 
 const CustomerLogin = () => {
   const [formState, setFormState] = React.useState({
@@ -20,13 +19,43 @@ const CustomerLogin = () => {
   const location = useLocation();
   const { businessSlug } = useParams();
   const { login } = useAuth();
-  const managerRecord = React.useMemo(() => {
-    if (!businessSlug) return null;
-    const found = findManagerBySlug(businessSlug);
-    if (!found) return null;
-    const { password, ...rest } = found;
-    return rest;
+  const [workspaceState, setWorkspaceState] = React.useState({
+    manager: null,
+    loading: false,
+    error: null,
+  });
+
+  React.useEffect(() => {
+    if (!businessSlug) {
+      setWorkspaceState({ manager: null, loading: false, error: null });
+      return;
+    }
+
+    let cancelled = false;
+    const fetchWorkspace = async () => {
+      setWorkspaceState((previous) => ({ ...previous, loading: true, error: null }));
+      try {
+        const { manager } = await getWorkspaceBySlug(businessSlug);
+        if (cancelled) return;
+        setWorkspaceState({ manager, loading: false, error: null });
+      } catch (fetchError) {
+        if (cancelled) return;
+        const message =
+          fetchError?.response?.data?.message ??
+          fetchError?.response?.data?.error ??
+          fetchError?.message ??
+          "Unable to find a workspace for this invite link.";
+        setWorkspaceState({ manager: null, loading: false, error: message });
+      }
+    };
+
+    fetchWorkspace();
+    return () => {
+      cancelled = true;
+    };
   }, [businessSlug]);
+
+  const managerRecord = workspaceState.manager;
 
   const businessName = React.useMemo(() => {
     if (managerRecord?.businessName) {
@@ -73,21 +102,16 @@ const CustomerLogin = () => {
 
       resolvedBusinessSlug = managerRecord.businessSlug ?? resolvedBusinessSlug;
 
-      const customerRecord = addCustomer({
-        ...basePayload,
+      const { customer, manager, token } = await joinCustomer({
         businessSlug: resolvedBusinessSlug,
-        managerId: managerRecord.id,
-      });
-
-      ensureConversation(managerRecord.id, customerRecord.id, {
-        managerName: managerRecord.managerName ?? managerRecord.businessName ?? "Manager",
-        customerName: customerRecord.name,
+        name: basePayload.name,
+        phone: basePayload.phone,
       });
 
       login({
         userType: "customer",
-        user: customerRecord,
-        token: `customer-${customerRecord.id}`,
+        user: { ...customer, manager },
+        token,
       });
 
       const fallbackPath = "/chat?role=customer";
@@ -95,7 +119,10 @@ const CustomerLogin = () => {
       navigate(redirectPath, { replace: true });
     } catch (requestError) {
       const message =
-        requestError?.message ?? "Unable to start a chat right now.";
+        requestError?.response?.data?.message ??
+        requestError?.response?.data?.error ??
+        requestError?.message ??
+        "Unable to start a chat right now.";
       setError(message);
     } finally {
       setLoading(false);
@@ -124,7 +151,19 @@ const CustomerLogin = () => {
             {businessName ? `${businessName} — Customer Login` : "Customer Login"}
           </Heading>
 
-          {businessSlug && !managerRecord ? (
+          {workspaceState.loading ? (
+            <p className="rounded-2xl border border-[#1f2c34]/40 bg-[#0f1a21]/70 px-4 py-3 text-sm text-[#8696a0]">
+              Checking workspace details…
+            </p>
+          ) : null}
+
+          {businessSlug && workspaceState.error ? (
+            <p className="rounded-2xl border border-[#b26c17]/40 bg-[#33230d]/70 px-4 py-3 text-sm text-[#f6dca2]">
+              {workspaceState.error}
+            </p>
+          ) : null}
+
+          {businessSlug && !workspaceState.loading && businessSlug && !managerRecord && !workspaceState.error ? (
             <p className="rounded-2xl border border-[#b26c17]/40 bg-[#33230d]/70 px-4 py-3 text-sm text-[#f6dca2]">
               We couldn&apos;t find an active workspace for <span className="font-semibold">{businessSlug}</span>. Double-check
               the link or ask the business to share their latest invite URL.

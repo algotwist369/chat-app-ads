@@ -1,4 +1,5 @@
 import React from "react";
+import apiClient from "../lib/apiClient";
 
 const AuthContext = React.createContext(undefined);
 
@@ -240,6 +241,15 @@ export const AuthProvider = ({ children }) => {
   );
 
   const activeSession = authState.activeRole ? authState.sessions?.[authState.activeRole] : null;
+
+  React.useEffect(() => {
+    const token = activeSession?.token ?? null;
+    if (token) {
+      apiClient.defaults.headers.common.Authorization = `Bearer ${token}`;
+    } else {
+      delete apiClient.defaults.headers.common.Authorization;
+    }
+  }, [activeSession?.token]);
 
   const value = React.useMemo(
     () => ({

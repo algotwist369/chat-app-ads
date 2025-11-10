@@ -7,7 +7,7 @@ import React, {
     useRef,
     useState,
 } from "react";
-import { FiMoreVertical, FiPaperclip, FiCheck } from "react-icons/fi";
+import { FiMoreVertical, FiPaperclip, FiCheck, FiPlay, FiPause } from "react-icons/fi";
 import { BiCheckDouble } from "react-icons/bi";
 import { cn } from "../common/utils";
 import { REACTION_OPTIONS, REACTION_LABELS } from "../common/reactions";
@@ -150,20 +150,99 @@ const renderVideo = (item, key) => (
     </div>
 );
 
-const renderAudio = (item, key) => (
-    <div key={key} className="flex flex-col gap-2 rounded-2xl bg-[#111b21]/60 p-3">
-        <span className="max-w-[12rem] truncate text-sm font-medium text-[#e9edef]">{item.name ?? "Audio file"}</span>
-        <audio src={item.src} controls preload="metadata" className="w-full" />
-        <a
-            href={item.src}
-            download={item.name ?? "audio"}
-            className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#25d366] hover:text-[#1dd460]"
-        >
-            <FiPaperclip className="h-4 w-4" />
-            Download audio
-        </a>
-    </div>
-);
+const formatAudioDuration = (seconds) => {
+    if (!Number.isFinite(seconds)) return "--:--";
+    const mins = Math.floor(seconds / 60)
+        .toString()
+        .padStart(2, "0");
+    const secs = Math.floor(seconds % 60)
+        .toString()
+        .padStart(2, "0");
+    return `${mins}:${secs}`;
+};
+
+const AudioAttachment = memo(function AudioAttachment({ item, attachmentKey }) {
+    const audioRef = useRef(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [duration, setDuration] = useState(null);
+
+    const togglePlayback = useCallback(() => {
+        const audio = audioRef.current;
+        if (!audio) return;
+        if (audio.paused) {
+            audio.play().catch(() => {
+                // ignore playback errors triggered by browser autoplay policies
+            });
+        } else {
+            audio.pause();
+        }
+    }, []);
+
+    useEffect(() => {
+        const audio = audioRef.current;
+        if (!audio) return undefined;
+
+        const handlePlay = () => setIsPlaying(true);
+        const handlePause = () => setIsPlaying(false);
+        const handleEnded = () => setIsPlaying(false);
+        const handleLoaded = () => setDuration(audio.duration);
+
+        audio.addEventListener("play", handlePlay);
+        audio.addEventListener("pause", handlePause);
+        audio.addEventListener("ended", handleEnded);
+        audio.addEventListener("loadedmetadata", handleLoaded);
+
+        if (audio.readyState >= 1) {
+            handleLoaded();
+        }
+
+        return () => {
+            audio.removeEventListener("play", handlePlay);
+            audio.removeEventListener("pause", handlePause);
+            audio.removeEventListener("ended", handleEnded);
+            audio.removeEventListener("loadedmetadata", handleLoaded);
+        };
+    }, []);
+
+    return (
+        <div key={attachmentKey} className="flex flex-col gap-3 rounded-2xl bg-[#111b21]/60 p-3">
+            <div className="flex items-center justify-between gap-3">
+                <button
+                    type="button"
+                    onClick={togglePlayback}
+                    className={cn(
+                        "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition-colors duration-150",
+                        isPlaying
+                            ? "bg-[#ff6b6b]/20 text-[#ffb3c1] hover:bg-[#ff6b6b]/25"
+                            : "bg-[#1f2c34] text-[#e9edef] hover:bg-[#23323c]",
+                    )}
+                >
+                    {isPlaying ? <FiPause className="h-4 w-4" /> : <FiPlay className="h-4 w-4" />}
+                    {isPlaying ? "Pause" : "Play audio"}
+                </button>
+                <span className="text-xs font-medium text-[#8696a0]">{formatAudioDuration(duration)}</span>
+            </div>
+            <audio ref={audioRef} src={item.src} controls preload="metadata" className="w-full" />
+            <div className="flex items-center justify-between gap-2">
+                <span className="max-w-[12rem] truncate text-sm font-medium text-[#e9edef]">
+                    {item.name ?? "Audio file"}
+                </span>
+                <a
+                    href={item.src}
+                    download={item.name ?? "audio"}
+                    className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#25d366] hover:text-[#1dd460]"
+                >
+                    <FiPaperclip className="h-4 w-4" />
+                    Download
+                </a>
+            </div>
+        </div>
+    );
+});
+
+AudioAttachment.displayName = "AudioAttachment";
+
+const renderAudio = (item, key) => <AudioAttachment key={key} item={item} attachmentKey={key} />;
 
 const renderFile = (item, key) => (
     <a
@@ -332,17 +411,14 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
             onPointerDown={handlePointerDown}
             onContextMenu={handleContextMenu}
             className={cn(
-                "mr-4 group relative flex w-full max-w-full flex-col gap-2 rounded-3xl px-3 py-3 transition-all duration-200 sm:px-4",
+                "mr-4 group relative flex w-full max-w-full flex-col gap-2 rounded-3xl px-3 py-2 transition-all duration-200 sm:px-4",
                 "max-w-[calc(100%-2.4rem)] sm:max-w-[calc(100%-6rem)] md:max-w-[520px]",
                 isOwn
-                    ? "ml-auto mr-1 bg-[#005c4b] text-[#e9edef] rounded-br-md shadow-lg shadow-[#005c4b]/40 sm:mr-2"
+                    ? "bg-red-500 ml-auto mr-1 bg-[#005c4b] text-[#e9edef] rounded-br-md shadow-lg shadow-[#005c4b]/40 sm:mr-2"
                     : "mr-auto ml-1 bg-[#1f2c34] text-[#e9edef] rounded-bl-md shadow-lg shadow-black/20 sm:ml-2",
             )}
         >
-            <header className="flex items-center justify-between gap-3">
-                <span className="text-xs font-semibold uppercase tracking-wide text-[#8696a0]">
-                    {isOwn ? "You" : message.authorName}
-                </span>
+            <header className="flex items-center justify-end gap-3">
                 <div className="flex items-center gap-2">
                     <span className="text-[0.68rem] text-[#c2cbce]">{message.time}</span>
                     {message.isEdited && (

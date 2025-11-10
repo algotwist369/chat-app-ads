@@ -81,6 +81,14 @@ const ConversationSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    mutedForManager: {
+      type: Boolean,
+      default: false,
+    },
+    mutedForCustomer: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
@@ -90,6 +98,8 @@ const ConversationSchema = new Schema(
 ConversationSchema.index({ manager: 1, customer: 1 }, { unique: true });
 ConversationSchema.index({ manager: 1, updatedAt: -1 });
 ConversationSchema.index({ status: 1 });
+ConversationSchema.index({ mutedForManager: 1 });
+ConversationSchema.index({ mutedForCustomer: 1 });
 
 module.exports =
   mongoose.models.Conversation || mongoose.model("Conversation", ConversationSchema);

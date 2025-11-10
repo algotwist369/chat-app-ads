@@ -102,10 +102,25 @@ const getCustomerConversationHandler = asyncHandler(async (req, res) => {
   res.json({ conversation });
 });
 
+const getWorkspaceBySlug = asyncHandler(async (req, res) => {
+  handleValidation(req);
+  const { businessSlug } = req.params;
+  const manager = await findManagerByBusinessSlug(businessSlug);
+  if (!manager) {
+    const error = new Error("Workspace not found for this invite link.");
+    error.status = 404;
+    throw error;
+  }
+  res.json({
+    manager: serializeManager(manager),
+  });
+});
+
 module.exports = {
   customerJoin,
   getCustomerProfile,
   getCustomerConversation: getCustomerConversationHandler,
+  getWorkspaceBySlug,
 };
 
 

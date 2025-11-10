@@ -9,6 +9,7 @@ const {
   markConversationRead,
   ensureManagerExists,
   ensureCustomerExists,
+  setConversationMuteState,
 } = require("../services/conversationService");
 const { serializeConversation } = require("../utils/serializers");
 const { Message } = require("../models");
@@ -99,6 +100,17 @@ const markReadHandler = asyncHandler(async (req, res) => {
   res.json({ conversationId: conversation._id.toString(), viewerType });
 });
 
+const setConversationMuteHandler = asyncHandler(async (req, res) => {
+  handleValidation(req);
+  const { conversationId } = req.params;
+  const { actorType, muted } = req.body;
+  const conversation = await setConversationMuteState(conversationId, actorType, muted);
+  const messages = await Message.find({ conversation: conversation._id }).sort({ createdAt: 1 });
+  res.json({
+    conversation: serializeConversation(conversation, messages),
+  });
+});
+
 module.exports = {
   getManagerConversations,
   getConversation,
@@ -106,6 +118,7 @@ module.exports = {
   getCustomerConversation: getCustomerConversationHandler,
   markDeliveredHandler,
   markReadHandler,
+  setConversationMuteHandler,
 };
 
 

@@ -1,5 +1,5 @@
 import React from "react";
-import { FiSend, FiSmile, FiMic, FiPlus, FiImage, FiPaperclip, FiX } from "react-icons/fi";
+import { FiSend, FiSmile, FiMic, FiPlus, FiImage, FiPaperclip, FiStopCircle, FiX } from "react-icons/fi";
 import Button from "../common/Button";
 import { cn } from "../common/utils";
 import { REACTION_OPTIONS } from "../common/reactions";
@@ -50,6 +50,17 @@ const ChatInput = React.forwardRef(
     const imageInputRef = React.useRef(null);
     const fileInputRef = React.useRef(null);
 
+    const mediaRecorderRef = React.useRef(null);
+    const recordingChunksRef = React.useRef([]);
+    const recordingStreamRef = React.useRef(null);
+    const recordingTimerRef = React.useRef(null);
+    const shouldSaveRecordingRef = React.useRef(true);
+
+    const [isRecording, setIsRecording] = React.useState(false);
+  const [recordingDuration, setRecordingDuration] = React.useState(0);
+    const [recordingError, setRecordingError] = React.useState(null);
+    const [recordingSupported, setRecordingSupported] = React.useState(true);
+
     const currentValue = isControlled ? value : internalValue;
 
     React.useEffect(() => {
@@ -68,6 +79,37 @@ const ChatInput = React.forwardRef(
     React.useEffect(() => {
       adjustHeight();
     }, [adjustHeight, currentValue]);
+
+    React.useEffect(() => {
+      if (typeof window === "undefined") return;
+      const supported =
+        Boolean(navigator.mediaDevices?.getUserMedia) &&
+        typeof window.MediaRecorder !== "undefined";
+      setRecordingSupported(supported);
+    }, []);
+
+    React.useEffect(
+      () => () => {
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+        const recorder = mediaRecorderRef.current;
+        if (recorder && recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch {
+            // ignore stop errors during cleanup
+          }
+        }
+        const stream = recordingStreamRef.current;
+        if (stream) {
+          stream.getTracks().forEach((track) => track.stop());
+          recordingStreamRef.current = null;
+        }
+      },
+      [],
+    );
 
     React.useEffect(() => {
       if (!extrasOpen) return undefined;
@@ -205,6 +247,151 @@ const ChatInput = React.forwardRef(
       return `${fixed} ${units[unitIndex]}`;
     };
 
+    const formatDuration = (seconds) => {
+      const mins = Math.floor(seconds / 60)
+        .toString()
+        .padStart(2, "0");
+      const secs = Math.floor(seconds % 60)
+        .toString()
+        .padStart(2, "0");
+      return `${mins}:${secs}`;
+    };
+
+    const cleanupRecordingResources = React.useCallback(() => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      const stream = recordingStreamRef.current;
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+        recordingStreamRef.current = null;
+      }
+      mediaRecorderRef.current = null;
+      setIsRecording(false);
+      setRecordingDuration(0);
+    }, []);
+
+    const handleRecorderStop = React.useCallback(
+      (recorder) => {
+        const shouldSave = shouldSaveRecordingRef.current;
+        shouldSaveRecordingRef.current = true;
+
+        const chunks = recordingChunksRef.current;
+        recordingChunksRef.current = [];
+
+        cleanupRecordingResources();
+
+        if (!shouldSave || !chunks.length) {
+          return;
+        }
+
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        if (!blob || blob.size === 0) {
+          setRecordingError("Recording is empty. Try again.");
+          return;
+        }
+
+        if (blob.size > 7 * 1024 * 1024) {
+          setRecordingError("Voice messages can be at most 7MB. Try a shorter recording.");
+          return;
+        }
+
+        const fileName = `voice-${Date.now()}.webm`;
+        const file = new File([blob], fileName, { type: blob.type || "audio/webm" });
+        const preview = URL.createObjectURL(blob);
+        const attachmentId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        setAttachments((previous) => [
+          ...previous,
+          {
+            id: attachmentId,
+            type: "audio",
+            name: fileName,
+            size: file.size,
+            preview,
+            file,
+          },
+        ]);
+        setRecordingError(null);
+      },
+      [cleanupRecordingResources, setAttachments],
+    );
+
+    const startRecording = React.useCallback(async () => {
+      if (isRecording) return;
+      if (!recordingSupported) {
+        setRecordingError("Voice messages are not supported in this browser.");
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        shouldSaveRecordingRef.current = true;
+        recordingStreamRef.current = stream;
+        const constraints = {
+          mimeType: window.MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+            ? "audio/webm;codecs=opus"
+            : undefined,
+          audioBitsPerSecond: 48000,
+        };
+
+        let recorder;
+        try {
+          recorder = new window.MediaRecorder(stream, constraints);
+        } catch {
+          recorder = new window.MediaRecorder(stream);
+        }
+
+        mediaRecorderRef.current = recorder;
+        recordingChunksRef.current = [];
+
+        recorder.addEventListener("dataavailable", (event) => {
+          if (event?.data && event.data.size > 0) {
+            recordingChunksRef.current.push(event.data);
+          }
+        });
+
+        recorder.addEventListener("stop", () => handleRecorderStop(recorder));
+
+        recorder.start();
+        setIsRecording(true);
+        setRecordingDuration(0);
+        setRecordingError(null);
+        recordingTimerRef.current = window.setInterval(() => {
+          setRecordingDuration((duration) => duration + 1);
+        }, 1000);
+      } catch (error) {
+        setRecordingError(
+          error?.name === "NotAllowedError"
+            ? "Microphone access is blocked. Please allow it in your browser settings."
+            : "Unable to start recording.",
+        );
+        cleanupRecordingResources();
+      }
+    }, [cleanupRecordingResources, handleRecorderStop, isRecording, recordingSupported]);
+
+    const stopRecording = React.useCallback(
+      ({ discard } = { discard: false }) => {
+        const recorder = mediaRecorderRef.current;
+        if (!recorder) return;
+
+        shouldSaveRecordingRef.current = !discard;
+
+        if (recorder.state !== "inactive") {
+          try {
+            recorder.stop();
+          } catch (error) {
+            console.error("Failed to stop recorder", error);
+            cleanupRecordingResources();
+          }
+        } else {
+          cleanupRecordingResources();
+        }
+      },
+      [cleanupRecordingResources],
+    );
+
     const handleChange = (event) => {
       const text = event.target.value;
       if (!isControlled) {
@@ -226,7 +413,7 @@ const ChatInput = React.forwardRef(
       if (!selectedFiles.length) return;
       const prepared = selectedFiles.map((file) => {
         const kind = detectKind(file, forcedKind);
-        const needsPreview = kind === "image" || kind === "video";
+        const needsPreview = kind === "image" || kind === "video" || kind === "audio";
         const preview = needsPreview ? URL.createObjectURL(file) : null;
         return {
           id: `${file.lastModified}-${file.name}-${Math.random().toString(36).slice(2, 8)}`,
@@ -285,13 +472,13 @@ const ChatInput = React.forwardRef(
           mode === "edit"
             ? []
             : attachments.map((item) => ({
-                id: item.id,
-                type: item.type,
-                file: item.file,
-                name: item.name,
-                size: item.size,
-                preview: item.preview,
-              }));
+              id: item.id,
+              type: item.type,
+              file: item.file,
+              name: item.name,
+              size: item.size,
+              preview: item.preview,
+            }));
         if (!text && attachmentsPayload.length === 0) return;
         onSend?.({
           text,
@@ -597,6 +784,41 @@ const ChatInput = React.forwardRef(
               </button>
             </div>
           )}
+          {isRecording ? (
+            <div className="mb-2 flex flex-col gap-2 rounded-2xl border border-[#ff6b6b]/40 bg-[#2a1010]/80 px-3 py-2 text-xs text-[#ffb3c1] sm:flex-row sm:items-center sm:justify-between sm:text-sm">
+              <div className="flex items-center gap-3">
+                <span className="relative flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#ff6b6b]/60 opacity-75" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-[#ff6b6b]" />
+                </span>
+                <span className="font-medium text-[#ffb3c1]">
+                  Recording… {formatDuration(recordingDuration)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRecordingError(null);
+                    stopRecording({ discard: true });
+                  }}
+                  className="inline-flex items-center justify-center rounded-full border border-[#ff6b6b]/40 px-3 py-1 text-xs font-medium text-[#ffb3c1] transition-colors duration-150 hover:border-[#ff6b6b]/80 hover:bg-[#ff6b6b]/10 sm:text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => stopRecording({ discard: false })}
+                  className="inline-flex items-center justify-center rounded-full border border-transparent bg-[#ff6b6b] px-3 py-1 text-xs font-semibold text-[#270a0a] shadow-md shadow-[#ff6b6b]/40 transition-transform duration-150 hover:scale-[1.02] sm:text-sm"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {recordingError ? (
+            <p className="mb-2 text-xs text-[#ffb3c1] sm:text-sm">{recordingError}</p>
+          ) : null}
           <textarea
             ref={textareaRef}
             rows={1}
@@ -618,27 +840,66 @@ const ChatInput = React.forwardRef(
           )}
           {attachments.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
-              {attachments.map((attachment) =>
-                attachment.type === "image" ? (
-                  <figure
-                    key={attachment.id}
-                    className="relative h-20 w-20 overflow-hidden rounded-xl border border-[#23323c] bg-[#111b21]/80 shadow-sm shadow-black/30"
-                  >
-                    <img
-                      src={attachment.preview}
-                      alt={attachment.name ?? "Selected image"}
-                      className="h-full w-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleAttachmentRemove(attachment.id)}
-                      className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#0b141a]/80 text-[#e9edef] shadow-sm"
-                      aria-label="Remove attachment"
+              {attachments.map((attachment) => {
+                if (attachment.type === "image") {
+                  return (
+                    <figure
+                      key={attachment.id}
+                      className="relative h-20 w-20 overflow-hidden rounded-xl border border-[#23323c] bg-[#111b21]/80 shadow-sm shadow-black/30"
                     >
-                      <FiX className="h-3.5 w-3.5" />
-                    </button>
-                  </figure>
-                ) : (
+                      <img
+                        src={attachment.preview}
+                        alt={attachment.name ?? "Selected image"}
+                        className="h-full w-full object-cover"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleAttachmentRemove(attachment.id)}
+                        className="absolute right-1 top-1 inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#0b141a]/80 text-[#e9edef] shadow-sm"
+                        aria-label="Remove attachment"
+                      >
+                        <FiX className="h-3.5 w-3.5" />
+                      </button>
+                    </figure>
+                  );
+                }
+
+                if (attachment.type === "audio") {
+                  return (
+                    <div
+                      key={attachment.id}
+                      className="relative flex w-full max-w-xs flex-col gap-2 rounded-2xl border border-[#23323c] bg-[#111b21]/80 px-4 py-3 text-left shadow-sm shadow-black/30 sm:max-w-sm"
+                    >
+                      <audio
+                        controls
+                        src={attachment.preview ?? attachment.data ?? ""}
+                        className="w-full"
+                      />
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 flex-col">
+                          <span className="truncate text-sm text-[#e9edef]">
+                            {attachment.name ?? "Voice message"}
+                          </span>
+                          {attachment.size ? (
+                            <span className="text-xs text-[#667781]">
+                              {formatBytes(attachment.size)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleAttachmentRemove(attachment.id)}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-[#0b141a]/80 text-[#e9edef] shadow-sm"
+                          aria-label="Remove attachment"
+                        >
+                          <FiX className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
                   <div
                     key={attachment.id}
                     className="relative flex max-w-[220px] items-center gap-3 rounded-2xl border border-[#23323c] bg-[#111b21]/80 px-3 py-2 text-left shadow-sm shadow-black/30"
@@ -661,24 +922,45 @@ const ChatInput = React.forwardRef(
                       <FiX className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                ),
-              )}
+                );
+              })}
             </div>
           )}
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-          {showMicButton && (
+          {showMicButton && recordingSupported ? (
             <button
               type="button"
-              onClick={onMicClick}
+              onClick={() => {
+                if (isRecording) {
+                  stopRecording({ discard: false });
+                } else {
+                  startRecording();
+                }
+                onMicClick?.();
+              }}
               disabled={disabled}
-              className="flex h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-colors duration-200 hover:bg-[#233942] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:h-11 sm:w-11"
-              aria-label="Record voice message"
+              className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-full transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:h-11 sm:w-11",
+                isRecording
+                  ? "bg-[#ff6b6b]/15 text-[#ff6b6b] hover:bg-[#ff6b6b]/25"
+                  : "text-[#8696a0] hover:bg-[#233942] hover:text-[#25d366]",
+              )}
+              aria-label={isRecording ? "Stop recording" : "Record voice message"}
+            >
+              {isRecording ? <FiStopCircle className="h-5 w-5" /> : <FiMic className="h-5 w-5" />}
+            </button>
+          ) : showMicButton ? (
+            <button
+              type="button"
+              disabled
+              className="flex h-10 w-10 items-center justify-center rounded-full text-[#8696a0]/60 sm:h-11 sm:w-11"
+              aria-label="Voice messages not supported"
             >
               <FiMic className="h-5 w-5" />
             </button>
-          )}
+          ) : null}
           <Button
             type="submit"
             variant="primary"
@@ -689,7 +971,7 @@ const ChatInput = React.forwardRef(
             <span className="hidden sm:inline">Send</span>
           </Button>
         </div>
-        
+
       </form>
     );
   },

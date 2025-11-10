@@ -1,6 +1,11 @@
 const express = require("express");
 const { body, param } = require("express-validator");
-const { customerJoin, getCustomerProfile, getCustomerConversation } = require("../controller/customerController");
+const {
+  customerJoin,
+  getCustomerProfile,
+  getCustomerConversation,
+  getWorkspaceBySlug,
+} = require("../controller/customerController");
 
 const router = express.Router();
 
@@ -18,6 +23,12 @@ router.post(
 router.get("/:id", [param("id").isMongoId()], getCustomerProfile);
 
 router.get("/:customerId/conversation", [param("customerId").isMongoId()], getCustomerConversation);
+
+router.get(
+  "/workspace/:businessSlug",
+  [param("businessSlug").isString().trim().notEmpty()],
+  getWorkspaceBySlug,
+);
 
 module.exports = router;
 

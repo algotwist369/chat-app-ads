@@ -1,11 +1,11 @@
 import React from "react";
 import { FiUploadCloud } from "react-icons/fi";
 import { cn } from "../common/utils";
-import { addManager } from "../../lib/mockDb";
 import { useAuth } from "../../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { buildCustomerInviteLink } from "../../lib/invite";
 import { toBusinessSlug } from "../../lib/slug";
+import { registerManager } from "../../lib/managers";
 
 const SignUp = () => {
   const fileInputRef = React.useRef(null);
@@ -66,26 +66,34 @@ const SignUp = () => {
       managerName: form.managerName.trim(),
       businessName: form.businessName.trim(),
       businessSlug,
-      mobileNumber: form.mobileNumber.trim(),
       email: form.email.trim(),
       password: form.password,
-      logo: logoData,
+      logo: logoData ?? undefined,
     };
 
+    const trimmedMobile = form.mobileNumber.trim();
+    if (trimmedMobile) {
+      payload.mobileNumber = trimmedMobile;
+    }
+
     try {
-      const createdManager = addManager(payload);
-      const inviteLink = buildCustomerInviteLink(createdManager.businessSlug ?? businessSlug);
+      const { manager, token } = await registerManager(payload);
+      const effectiveSlug = manager?.businessSlug ?? businessSlug;
+      const inviteLink = buildCustomerInviteLink(effectiveSlug);
 
       login({
         userType: "manager",
-        user: { ...createdManager, inviteLink },
-        token: `manager-${createdManager.id}`,
+        user: { ...manager, inviteLink },
+        token,
       });
 
       navigate("/chat?role=manager", { replace: true });
     } catch (requestError) {
       const message =
-        requestError?.message ?? "Unable to create account right now.";
+        requestError?.response?.data?.message ??
+        requestError?.response?.data?.error ??
+        requestError?.message ??
+        "Unable to create account right now.";
       setError(message);
     } finally {
       setLoading(false);

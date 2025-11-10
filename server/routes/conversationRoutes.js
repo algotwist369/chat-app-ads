@@ -40,6 +40,16 @@ router.post(
   conversationController.markReadHandler,
 );
 
+router.post(
+  "/:conversationId/mute",
+  [
+    param("conversationId").isMongoId(),
+    body("actorType").isIn(["manager", "customer"]),
+    body("muted").isBoolean(),
+  ],
+  conversationController.setConversationMuteHandler,
+);
+
 module.exports = router;
 
 

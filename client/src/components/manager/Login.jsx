@@ -4,8 +4,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import Button from "../common/Button";
 import { cn } from "../common/utils";
 import { useAuth } from "../../context/AuthContext";
-import { verifyManagerCredentials } from "../../lib/mockDb";
 import { buildCustomerInviteLink } from "../../lib/invite";
+import { loginManager } from "../../lib/managers";
 
 const EMAIL_STORAGE_KEY = "managerLoginEmail";
 const REMEMBER_STORAGE_KEY = "managerLoginRemember";
@@ -73,11 +73,7 @@ const Login = () => {
       };
 
       try {
-        const managerRecord = verifyManagerCredentials(payload.email, payload.password);
-        if (!managerRecord) {
-          throw new Error("Invalid email or password. Please try again.");
-        }
-
+        const { manager, token } = await loginManager(payload);
         if (typeof window !== "undefined") {
           if (rememberMe) {
             window.localStorage.setItem(REMEMBER_STORAGE_KEY, "true");
@@ -88,18 +84,24 @@ const Login = () => {
           }
         }
 
+        const inviteLink = buildCustomerInviteLink(manager?.businessSlug);
+
         login({
           userType: "manager",
-          user: { ...managerRecord, inviteLink: buildCustomerInviteLink(managerRecord.businessSlug) },
-          token: `manager-${managerRecord.id}`,
+          user: { ...manager, inviteLink },
+          token,
         });
 
         const fallbackPath = "/chat?role=manager";
         const redirectPath = location.state?.from ?? fallbackPath;
         navigate(redirectPath, { replace: true });
       } catch (requestError) {
-        const responseMessage = requestError?.message ?? "Unable to sign in right now.";
-        setError(responseMessage);
+        const apiMessage =
+          requestError?.response?.data?.message ??
+          requestError?.response?.data?.error ??
+          requestError?.message ??
+          "Unable to sign in right now.";
+        setError(apiMessage);
       } finally {
         setLoading(false);
       }

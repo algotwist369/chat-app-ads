@@ -88,6 +88,7 @@ const ChatWindow = ({
   onCancelReply,
   editingMessage,
   onCancelEdit,
+  typingParticipants = [],
   className,
 }) => {
   const containerRef = React.useRef(null);
@@ -171,7 +172,7 @@ const ChatWindow = ({
       <div className="flex-1 overflow-hidden">
         <div
           ref={containerRef}
-          className="flex h-full flex-col gap-6 overflow-y-auto bg-[url('https://st4.depositphotos.com/5586578/25357/i/1600/depositphotos_253573864-stock-photo-spa-girls-smartphone-urban-leisure.jpg')] bg-cover bg-center px-3 py-4 sm:px-6 sm:py-6"
+          className="flex h-full flex-col gap-6 overflow-y-auto bg-[url('https://cdn.pixabay.com/photo/2021/09/09/20/47/candles-6611567_1280.jpg')] bg-cover bg-center px-3 py-4 sm:px-6 sm:py-6"
         >
           {!isSearching && systemMessage && <SystemBubble message={systemMessage} />}
           {showingHasMessages ? (
@@ -217,6 +218,15 @@ const ChatWindow = ({
         className="border-t border-[#1f2c34] bg-[#111b21]/90 px-2 pt-2 pb-4 sm:px-4 sm:pt-3 sm:pb-6"
         style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       >
+        {typingParticipants.length > 0 && (
+          <div className="mb-2 flex items-center gap-2 rounded-full bg-[#1f2c34]/80 px-3 py-1 text-xs text-[#c2cbce] sm:text-sm">
+            <span className="h-2 w-2 rounded-full bg-[#25d366]" />
+            <span className="truncate">
+              {typingParticipants.join(", ")} {typingParticipants.length === 1 ? "is" : "are"} typing…
+            </span>
+          </div>
+        )}
+
         <ChatInput
           value={draftValue}
           onChange={onDraftChange}

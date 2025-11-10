@@ -3,9 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { FiArrowLeft, FiUploadCloud, FiTrash2, FiCopy } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext";
 import Button from "../common/Button";
-import { updateManager } from "../../lib/mockDb";
 import { buildCustomerInviteLink } from "../../lib/invite";
 import { toBusinessSlug } from "../../lib/slug";
+import { getManagerProfile, updateManagerProfile } from "../../lib/managers";
 
 const ManagerSetting = () => {
   const navigate = useNavigate();
@@ -32,6 +32,58 @@ const ManagerSetting = () => {
   const [isSaving, setIsSaving] = React.useState(false);
   const [error, setError] = React.useState(null);
   const [success, setSuccess] = React.useState(null);
+  const [isLoadingProfile, setIsLoadingProfile] = React.useState(false);
+  React.useEffect(() => {
+    const managerId = managerSession?.user?.id;
+    if (!managerId) return;
+
+    let cancelled = false;
+    const syncProfile = async () => {
+      try {
+        setIsLoadingProfile(true);
+        const { manager: profile } = await getManagerProfile(managerId);
+        if (cancelled || !profile) return;
+
+        setForm({
+          managerName: profile.managerName ?? "",
+          businessName: profile.businessName ?? "",
+          email: profile.email ?? "",
+          mobileNumber: profile.mobileNumber ?? "",
+        });
+        setLogoPreview(profile.logo ?? null);
+        setLogoData(profile.logo ?? null);
+
+        const refreshedInviteLink = buildCustomerInviteLink(profile.businessSlug);
+
+        updateSession?.("manager", (session) => ({
+          ...session,
+          user: {
+            ...session.user,
+            ...profile,
+            inviteLink: refreshedInviteLink,
+          },
+        }));
+      } catch (fetchError) {
+        const message =
+          fetchError?.response?.data?.message ??
+          fetchError?.response?.data?.error ??
+          fetchError?.message ??
+          "Unable to load business details.";
+        if (!cancelled) {
+          setError(message);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingProfile(false);
+        }
+      }
+    };
+
+    syncProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [managerSession?.user?.id, updateSession]);
 
   const currentSlug = React.useMemo(() => {
     const trimmed = form.businessName.trim();
@@ -102,7 +154,7 @@ const ManagerSetting = () => {
     };
 
     try {
-      const updated = updateManager(managerSession.user.id, payload);
+      const { manager: updated } = await updateManagerProfile(managerSession.user.id, payload);
       const refreshedInviteLink = buildCustomerInviteLink(updated.businessSlug ?? nextSlug);
 
       updateSession?.("manager", (session) => ({
@@ -116,7 +168,12 @@ const ManagerSetting = () => {
 
       setSuccess("Business profile updated successfully.");
     } catch (updateError) {
-      setError(updateError?.message ?? "Unable to update business details right now.");
+      const message =
+        updateError?.response?.data?.message ??
+        updateError?.response?.data?.error ??
+        updateError?.message ??
+        "Unable to update business details right now.";
+      setError(message);
     } finally {
       setIsSaving(false);
     }
@@ -278,6 +335,9 @@ const ManagerSetting = () => {
               Save Changes
             </Button>
           </div>
+          {isLoadingProfile ? (
+            <p className="text-xs text-[#667781]">Refreshing business details…</p>
+          ) : null}
         </form>
       </div>
     </section>

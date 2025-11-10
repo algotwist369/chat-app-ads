@@ -167,6 +167,8 @@ const serializeConversation = (conversationDoc, messages = []) => {
     tags,
     isPinned,
     isMuted,
+    mutedForManager,
+    mutedForCustomer,
     createdAt,
     updatedAt,
   } = conversation;
@@ -191,6 +193,10 @@ const serializeConversation = (conversationDoc, messages = []) => {
     tags: tags ?? [],
     pinned: Boolean(isPinned),
     muted: Boolean(isMuted),
+    mutedBy: {
+      manager: Boolean(mutedForManager ?? false) || Boolean(isMuted),
+      customer: Boolean(mutedForCustomer ?? false) || Boolean(isMuted),
+    },
     createdAt,
     updatedAt,
     messages: Array.isArray(messages) ? messages.map(serializeMessage) : [],

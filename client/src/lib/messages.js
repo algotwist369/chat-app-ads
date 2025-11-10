@@ -1,12 +1,21 @@
 import apiClient from "./apiClient";
 
-export const postMessage = async (payload) => {
-  const response = await apiClient.post("/api/messages", payload);
+const buildRequestConfig = (payload, config = {}) => {
+  if (payload instanceof FormData) {
+    return config;
+  }
+  return config;
+};
+
+export const postMessage = async (payload, config = {}) => {
+  const requestConfig = buildRequestConfig(payload, config);
+  const response = await apiClient.post("/api/messages", payload, requestConfig);
   return response.data;
 };
 
-export const patchMessage = async (messageId, payload) => {
-  const response = await apiClient.patch(`/api/messages/${messageId}`, payload);
+export const patchMessage = async (messageId, payload, config = {}) => {
+  const requestConfig = buildRequestConfig(payload, config);
+  const response = await apiClient.patch(`/api/messages/${messageId}`, payload, requestConfig);
   return response.data;
 };
 

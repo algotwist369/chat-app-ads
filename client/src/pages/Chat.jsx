@@ -16,6 +16,7 @@ import {
 import { postMessage, patchMessage, removeMessage, postReaction } from "../lib/messages";
 import { buildCustomerInviteLink } from "../lib/invite";
 import { getSocket } from "../lib/socketClient";
+import { getCacheItem, setCacheItem, removeCacheItem, CACHE_KEYS } from "../lib/cache";
 
 const formatTime = (timestamp) => {
   if (!timestamp) return "";
@@ -64,32 +65,65 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
         };
   }
 
-    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
-    const mediaItems = attachments
-      .map((attachment) => {
+  const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+  const mediaItems = attachments
+    .map((attachment) => {
       const src = attachment?.url ?? attachment?.data ?? attachment?.preview ?? null;
-        if (!src) return null;
-      const type = (attachment.type ?? "file").toLowerCase();
-      if (type === "image") {
-          return {
-            type: "image",
-            src,
-            alt: attachment.name ?? "Shared image",
-            name: attachment.name ?? undefined,
-          };
-        }
+      if (!src) return null;
+      const type = (attachment.type ?? attachment?.mimeType ?? "file").toString().toLowerCase();
+      if (type.startsWith("image") || type === "image") {
         return {
-          type: "file",
+          type: "image",
           src,
-          name: attachment.name ?? "Shared file",
-          size: attachment.size ?? undefined,
+          alt: attachment.name ?? "Shared image",
+          name: attachment.name ?? undefined,
         };
-      })
-      .filter(Boolean);
+      }
+      if (type.startsWith("video") || type === "video") {
+        return {
+          type: "video",
+          src,
+          name: attachment.name ?? "Shared video",
+        };
+      }
+      if (type.startsWith("audio") || type === "audio") {
+        return {
+          type: "audio",
+          src,
+          name: attachment.name ?? "Shared audio",
+        };
+      }
+      return {
+        type: "file",
+        src,
+        name: attachment.name ?? "Shared file",
+        size: attachment.size ?? undefined,
+      };
+    })
+    .filter(Boolean);
 
-    let media = null;
-    if (mediaItems.length === 1) media = mediaItems[0];
-    else if (mediaItems.length > 1) media = mediaItems;
+  let media = null;
+  if (mediaItems.length === 1) media = mediaItems[0];
+  else if (mediaItems.length > 1) media = mediaItems;
+
+  const normalizedAttachments = attachments
+    .map((attachment) => ({
+      url: attachment?.url ?? attachment?.data ?? null,
+      type:
+        attachment?.type ??
+        (attachment?.mimeType?.startsWith("image/")
+          ? "image"
+          : attachment?.mimeType?.startsWith("video/")
+          ? "video"
+          : attachment?.mimeType?.startsWith("audio/")
+          ? "audio"
+          : "file"),
+      name: attachment?.name ?? null,
+      size: attachment?.size ?? null,
+      mimeType: attachment?.mimeType ?? null,
+      preview: attachment?.preview ?? null,
+    }))
+    .filter((attachment) => attachment.url);
 
   const reactions = Array.isArray(message.reactions)
     ? message.reactions
@@ -128,12 +162,13 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
       authorName: isManagerMessage ? managerDisplayName : customerDisplayName,
       avatar: isManagerMessage ? managerAvatar : customerAvatar,
     content: message.content ?? "",
-      media,
-      time: formatTime(message.createdAt),
+    media,
+    attachments: normalizedAttachments,
+    time: formatTime(message.createdAt),
     status: deriveMessageStatus(message, perspective),
     reactions,
-      replyTo,
-      isEdited: Boolean(message.editedAt),
+    replyTo,
+    isEdited: Boolean(message.editedAt),
     createdAt: message.createdAt,
   };
 };
@@ -259,6 +294,7 @@ const Chat = () => {
   const [messageMenu, setMessageMenu] = React.useState(null);
   const [typingIndicators, setTypingIndicators] = React.useState({});
   const [transientError, setTransientError] = React.useState(null);
+  const [loadingConversationId, setLoadingConversationId] = React.useState(null);
 
   const socketRef = React.useRef(null);
   const typingTimeoutRef = React.useRef(null);
@@ -388,30 +424,88 @@ const Chat = () => {
     setSidebarOpen(!isMobile);
   }, [isMobile]);
 
-  const refreshConversation = React.useCallback(async (conversationId) => {
-    try {
-      const { conversation } = await fetchConversationById(conversationId);
-      if (!conversation) return;
-      setRawConversations((previous) => ({
-        ...previous,
-        [conversationId]: conversation,
-      }));
-    } catch (error) {
-      console.error("Failed to refresh conversation", error);
-      showTransientError("Unable to refresh conversation.");
-    }
-  }, [showTransientError]);
+  const refreshConversation = React.useCallback(
+    async (conversationId, options = {}) => {
+      if (!conversationId) return;
+      const { force = false } = options;
+      const showSkeleton = options.showSkeleton ?? !force;
+      const conversationCacheKey = CACHE_KEYS.conversation(conversationId);
+      if (!force) {
+        const cachedConversation = getCacheItem(conversationCacheKey);
+        if (cachedConversation?.id) {
+          setRawConversations((previous) => ({
+            ...previous,
+            [conversationId]: cachedConversation,
+          }));
+        }
+      }
+
+      if (showSkeleton) {
+        setLoadingConversationId(conversationId);
+      }
+      try {
+        const { conversation } = await fetchConversationById(conversationId);
+        if (!conversation) return;
+
+        setRawConversations((previous) => ({
+          ...previous,
+          [conversationId]: conversation,
+        }));
+
+        setCacheItem(conversationCacheKey, conversation, 60 * 1000);
+
+        if (userType && user?.id) {
+          const listKey = CACHE_KEYS.conversationList(userType, user.id);
+          const cachedList = getCacheItem(listKey);
+          if (Array.isArray(cachedList)) {
+            const updated = [
+              conversation,
+              ...cachedList.filter((item) => item?.id && item.id !== conversation.id),
+            ];
+            setCacheItem(listKey, updated, 60 * 1000);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to refresh conversation", error);
+        showTransientError("Unable to refresh conversation.");
+      } finally {
+        if (showSkeleton) {
+          setLoadingConversationId((current) => (current === conversationId ? null : current));
+        }
+      }
+    },
+    [userType, user?.id, showTransientError],
+  );
 
   const fetchConversations = React.useCallback(async () => {
     if (!user || !userType) {
       setRawConversations({});
       return;
     }
+
+    const listCacheKey = CACHE_KEYS.conversationList(userType, user.id);
+    const cachedList = getCacheItem(listCacheKey);
+    if (Array.isArray(cachedList) && cachedList.length) {
+      const mappedFromCache = {};
+      cachedList.forEach((conversation) => {
+        if (conversation?.id) {
+          mappedFromCache[conversation.id] = conversation;
+        }
+      });
+      setRawConversations((previous) => ({
+        ...mappedFromCache,
+        ...previous,
+      }));
+      if (!activeChatId) {
+        setActiveChatId(cachedList[0].id);
+      }
+    }
+
     setLoadingConversations(true);
     setFetchError(null);
     try {
       let conversations = [];
-    if (isManager) {
+      if (isManager) {
         const response = await fetchManagerConversations(user.id);
         conversations = response.conversations ?? [];
       } else if (isCustomer) {
@@ -428,6 +522,12 @@ const Chat = () => {
       if (!activeChatId && conversations.length) {
         setActiveChatId(conversations[0].id);
       }
+      setCacheItem(listCacheKey, conversations, 60 * 1000);
+      conversations.forEach((conversation) => {
+        if (conversation?.id) {
+          setCacheItem(CACHE_KEYS.conversation(conversation.id), conversation, 60 * 1000);
+        }
+      });
     } catch (error) {
       const message =
         error?.response?.data?.message ??
@@ -436,11 +536,19 @@ const Chat = () => {
         "Unable to load conversations.";
       setFetchError(message);
       setRawConversations({});
+      removeCacheItem(listCacheKey);
       showTransientError(message);
     } finally {
       setLoadingConversations(false);
     }
-  }, [user, userType, isManager, isCustomer, activeChatId, showTransientError]);
+  }, [
+    user,
+    userType,
+    isManager,
+    isCustomer,
+    activeChatId,
+    showTransientError,
+  ]);
 
   React.useEffect(() => {
     fetchConversations();
@@ -473,6 +581,10 @@ const Chat = () => {
     conversations.find((conversation) => conversation.id === activeChatId) ?? null;
   const activeConversationId = activeConversation?.id ?? null;
 
+  const isConversationLoading =
+    (loadingConversationId && loadingConversationId === activeConversationId) ||
+    (loadingConversations && !activeConversation);
+
   React.useEffect(() => {
     const socket = getSocket();
     socketRef.current = socket;
@@ -495,23 +607,35 @@ const Chat = () => {
             messages: payload.messages ?? previous[payload.id]?.messages ?? [],
           },
         }));
+        setCacheItem(CACHE_KEYS.conversation(payload.id), payload, 60 * 1000);
+        if (userType && user?.id) {
+          const listKey = CACHE_KEYS.conversationList(userType, user.id);
+          const cachedList = getCacheItem(listKey);
+          if (Array.isArray(cachedList)) {
+            const updated = [
+              payload,
+              ...cachedList.filter((conversation) => conversation?.id && conversation.id !== payload.id),
+            ];
+            setCacheItem(listKey, updated, 60 * 1000);
+          }
+        }
       }
     };
 
     const handleMessageEvent = (message) => {
       if (!message?.conversationId) return;
-      refreshConversation(message.conversationId);
+      refreshConversation(message.conversationId, { force: true, showSkeleton: false });
     };
 
     const handleMessageNew = (message) => {
       if (message?.conversationId) {
-      const messageAuthorId = message.authorId ? String(message.authorId) : null;
-      const currentUserIdStr = user?.id ? String(user.id) : null;
-      const messageAuthorType = message.authorType ?? null;
-      const ownType = isManager ? "manager" : isCustomer ? "customer" : null;
-      const isOwnMessage =
-        (currentUserIdStr && messageAuthorId && messageAuthorId === currentUserIdStr) ||
-        (ownType && messageAuthorType === ownType);
+        const messageAuthorId = message.authorId ? String(message.authorId) : null;
+        const currentUserIdStr = user?.id ? String(user.id) : null;
+        const messageAuthorType = message.authorType ?? null;
+        const ownType = isManager ? "manager" : isCustomer ? "customer" : null;
+        const isOwnMessage =
+          (currentUserIdStr && messageAuthorId && messageAuthorId === currentUserIdStr) ||
+          (ownType && messageAuthorType === ownType);
 
         const shouldNotify = !isOwnMessage;
 
@@ -520,17 +644,17 @@ const Chat = () => {
         }
       }
 
-      refreshConversation(message.conversationId);
+      refreshConversation(message.conversationId, { force: true, showSkeleton: false });
     };
 
     const handleMessageDeleted = ({ conversationId }) => {
       if (!conversationId) return;
-      refreshConversation(conversationId);
+      refreshConversation(conversationId, { force: true, showSkeleton: false });
     };
 
     const handleConversationDelivery = ({ conversationId }) => {
       if (!conversationId) return;
-      refreshConversation(conversationId);
+      refreshConversation(conversationId, { force: true, showSkeleton: false });
     };
 
     const handleConversationMuted = ({ conversation }) => {
@@ -543,6 +667,18 @@ const Chat = () => {
           messages: previous[conversation.id]?.messages ?? [],
         },
       }));
+      setCacheItem(CACHE_KEYS.conversation(conversation.id), conversation, 60 * 1000);
+      if (userType && user?.id) {
+        const listKey = CACHE_KEYS.conversationList(userType, user.id);
+        const cachedList = getCacheItem(listKey);
+        if (Array.isArray(cachedList)) {
+          const updated = [
+            conversation,
+            ...cachedList.filter((item) => item?.id && item.id !== conversation.id),
+          ];
+          setCacheItem(listKey, updated, 60 * 1000);
+        }
+      }
     };
 
     const handleTyping = ({ conversationId, actorType, actorId, isTyping }) => {
@@ -595,6 +731,7 @@ const Chat = () => {
     };
   }, [
     user?.id,
+    userType,
     isManager,
     isCustomer,
     refreshConversation,
@@ -635,17 +772,6 @@ const Chat = () => {
     }
   };
 
-  const fileToDataURL = React.useCallback(
-    (file) =>
-      new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : null);
-        reader.onerror = (error) => reject(error);
-        reader.readAsDataURL(file);
-      }),
-    [],
-  );
-
   const emitTyping = React.useCallback(
     (conversationId, isTyping) => {
       if (!socketRef.current || !conversationId) return;
@@ -680,69 +806,17 @@ const Chat = () => {
 
   const handleSend = React.useCallback(
     async (payload) => {
-      if (!activeConversationId) return;
-      const active = activeConversation ?? null;
-      if (!active) return;
+      if (!activeConversationId || !activeConversation) return;
 
       const mode = payload?.mode === "edit" ? "edit" : "new";
       const rawText = typeof payload?.text === "string" ? payload.text : "";
       const content = rawText.trim();
 
-      if (mode === "edit") {
-        if (!payload?.targetMessageId || !content) return;
-        try {
-          if (isSocketConnected()) {
-            socketRef.current.emit("message:edit", {
-              messageId: payload.targetMessageId,
-              content,
-            });
-          } else {
-            await patchMessage(payload.targetMessageId, { content });
-          }
-        setDraftValue("");
-        setEditingMessage(null);
-          refreshConversation(activeConversationId);
-        } catch (error) {
-          console.error("Failed to edit message", error);
-          showTransientError(
-            error?.response?.data?.message ??
-              error?.response?.data?.error ??
-              "Unable to edit message right now.",
-          );
-        }
-        return;
-      }
+      const newAttachments = Array.isArray(payload?.newAttachments) ? payload.newAttachments : [];
+      const keepAttachments = Array.isArray(payload?.keepAttachments) ? payload.keepAttachments : [];
+      const hasAttachmentContent = newAttachments.length > 0 || keepAttachments.length > 0;
 
-      const attachmentsInput = Array.isArray(payload?.attachments) ? payload.attachments : [];
-      const processedAttachments = await Promise.all(
-        attachmentsInput.map(async (attachment) => {
-          const baseType =
-            attachment.type ??
-            (attachment.file?.type?.startsWith("image/") ? "image" : attachment.file ? "file" : "other");
-
-          let data = attachment.data ?? attachment.preview ?? null;
-          if (!data && attachment.file) {
-            try {
-              data = await fileToDataURL(attachment.file);
-            } catch {
-              data = null;
-            }
-          }
-
-          if (!data) return null;
-
-          return {
-            type: baseType,
-            name: attachment.name ?? attachment.file?.name ?? undefined,
-            size: attachment.size ?? attachment.file?.size ?? undefined,
-            data,
-            mimeType: attachment.file?.type ?? undefined,
-          };
-        }),
-      );
-
-      const filteredAttachments = processedAttachments.filter(Boolean);
-      if (!content && filteredAttachments.length === 0) return;
+      if (!content && !hasAttachmentContent) return;
 
       const replyDetails = payload?.replyTo
         ? {
@@ -753,37 +827,74 @@ const Chat = () => {
           }
         : null;
 
+      const authorType = isManager ? "manager" : "customer";
+      const authorId = user?.id ?? null;
+
       try {
-        if (isSocketConnected()) {
-          socketRef.current.emit("message:send", {
-            conversationId: activeConversationId,
-        authorType: isManager ? "manager" : "customer",
-            authorId: user?.id ?? null,
-        content,
-        attachments: filteredAttachments,
-        replyTo: replyDetails,
-      });
-        } else {
-          await postMessage({
-            conversationId: activeConversationId,
-            authorType: isManager ? "manager" : "customer",
-            authorId: user?.id ?? null,
-            content,
-            attachments: filteredAttachments,
-            replyTo: replyDetails,
+        if (mode === "edit") {
+          if (!payload?.targetMessageId) return;
+
+          const formData = new FormData();
+          formData.append("content", content);
+          if (replyDetails) {
+            formData.append("replyTo", JSON.stringify(replyDetails));
+          }
+          if (keepAttachments.length) {
+            formData.append("keepAttachments", JSON.stringify(keepAttachments));
+          }
+          newAttachments.forEach((attachment) => {
+            if (attachment?.file) {
+              formData.append(
+                "attachments",
+                attachment.file,
+                attachment.file.name ?? attachment.name ?? "attachment",
+              );
+            }
           });
+
+          await patchMessage(payload.targetMessageId, formData);
+          emitTyping(activeConversationId, false);
+          setDraftValue("");
+          setEditingMessage(null);
+          setReplyTarget(null);
+          refreshConversation(activeConversationId, { force: true, showSkeleton: false });
+          return;
         }
 
+        if (!content && newAttachments.length === 0) return;
+
+        const formData = new FormData();
+        formData.append("conversationId", activeConversationId);
+        formData.append("authorType", authorType);
+        if (authorId) {
+          formData.append("authorId", authorId);
+        }
+        formData.append("content", content);
+        if (replyDetails) {
+          formData.append("replyTo", JSON.stringify(replyDetails));
+        }
+        newAttachments.forEach((attachment) => {
+          if (attachment?.file) {
+            formData.append(
+              "attachments",
+              attachment.file,
+              attachment.file.name ?? attachment.name ?? "attachment",
+            );
+          }
+        });
+
+        await postMessage(formData);
         emitTyping(activeConversationId, false);
-      setDraftValue("");
-      setReplyTarget(null);
-        refreshConversation(activeConversationId);
+        setDraftValue("");
+        setReplyTarget(null);
+        refreshConversation(activeConversationId, { force: true, showSkeleton: false });
       } catch (error) {
         console.error("Failed to send message", error);
         showTransientError(
           error?.response?.data?.message ??
             error?.response?.data?.error ??
-            "Unable to send message. Please try again.",
+            error?.message ??
+            "Unable to send message right now.",
         );
       }
     },
@@ -791,10 +902,11 @@ const Chat = () => {
       activeConversation,
       activeConversationId,
       emitTyping,
-      fileToDataURL,
       isManager,
-      isSocketConnected,
       refreshConversation,
+      setDraftValue,
+      setEditingMessage,
+      setReplyTarget,
       showTransientError,
       user?.id,
     ],
@@ -821,7 +933,7 @@ const Chat = () => {
       if (replyTarget?.messageId === message.id) {
         setReplyTarget(null);
       }
-          refreshConversation(activeConversationId);
+          refreshConversation(activeConversationId, { force: true, showSkeleton: false });
       setMessageMenu(null);
         } catch (error) {
           console.error("Failed to delete message", error);
@@ -860,7 +972,7 @@ const Chat = () => {
           } else {
             await postReaction(message.id, { emoji, actorType });
           }
-          refreshConversation(activeConversationId);
+          refreshConversation(activeConversationId, { force: true, showSkeleton: false });
         } catch (error) {
           console.error("Failed to toggle reaction", error);
           showTransientError(
@@ -933,17 +1045,30 @@ const Chat = () => {
             ...(existing.mutedBy ?? {}),
             [actorType]: nextMuted,
           };
+          const updatedConversation = {
+            ...existing,
+            mutedBy: nextMutedBy,
+            isMuted: nextMuted ? true : existing.isMuted,
+          };
+          setCacheItem(CACHE_KEYS.conversation(chat.id), updatedConversation, 60 * 1000);
+          if (userType && user?.id) {
+            const listKey = CACHE_KEYS.conversationList(userType, user.id);
+            const cachedList = getCacheItem(listKey);
+            if (Array.isArray(cachedList)) {
+              const nextList = [
+                updatedConversation,
+                ...cachedList.filter((item) => item?.id && item.id !== chat.id),
+              ];
+              setCacheItem(listKey, nextList, 60 * 1000);
+            }
+          }
           return {
             ...previous,
-            [chat.id]: {
-              ...existing,
-              mutedBy: nextMutedBy,
-              isMuted: nextMuted ? true : existing.isMuted,
-            },
+            [chat.id]: updatedConversation,
           };
         });
 
-        refreshConversation(chat.id);
+        refreshConversation(chat.id, { force: true, showSkeleton: false });
       } catch (error) {
         console.error("Failed to update mute state", error);
         showTransientError(
@@ -956,6 +1081,8 @@ const Chat = () => {
     [
       isCustomer,
       isManager,
+      userType,
+      user?.id,
       isSocketConnected,
       refreshConversation,
       showTransientError,
@@ -1092,6 +1219,7 @@ const Chat = () => {
               setMessageMenu({ message, bounds, chatId: activeChatId })
             }
             typingParticipants={typingParticipants}
+            isLoading={isConversationLoading}
           />
         ) : (
           <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 bg-[#111b21] text-center text-[#8696a0]">

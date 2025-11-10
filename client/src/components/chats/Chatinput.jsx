@@ -4,6 +4,8 @@ import Button from "../common/Button";
 import { cn } from "../common/utils";
 import { REACTION_OPTIONS } from "../common/reactions";
 
+const MAX_ATTACHMENTS = Number(import.meta.env.VITE_MESSAGE_MAX_ATTACHMENTS ?? "5");
+
 const ChatInput = React.forwardRef(
   (
     {
@@ -44,6 +46,7 @@ const ChatInput = React.forwardRef(
     const emojiPickerAnchor = emojiPickerState.anchor;
     const emojiPickerRef = React.useRef(null);
     const [attachments, setAttachments] = React.useState([]);
+    const [attachmentError, setAttachmentError] = React.useState(null);
     const attachmentsRef = React.useRef([]);
     const desktopAttachRef = React.useRef(null);
     const [desktopAttachOpen, setDesktopAttachOpen] = React.useState(false);
@@ -201,25 +204,40 @@ const ChatInput = React.forwardRef(
 
     React.useEffect(() => {
       if (mode !== "edit") return;
-      if (attachments.length === 0) return;
-      attachments.forEach((attachment) => {
-        if (attachment.preview) {
+
+      attachmentsRef.current.forEach((attachment) => {
+        if (!attachment?.isExisting && attachment.preview) {
           URL.revokeObjectURL(attachment.preview);
         }
       });
-      setAttachments([]);
-    }, [attachments, mode]);
 
-    React.useEffect(
-      () => () => {
-        attachmentsRef.current.forEach((attachment) => {
-          if (attachment.preview) {
-            URL.revokeObjectURL(attachment.preview);
-          }
-        });
-      },
-      [],
-    );
+      const existingAttachments = Array.isArray(editingMessage?.attachments)
+        ? editingMessage.attachments.map((attachment, index) => {
+            const url = attachment?.url ?? null;
+            const type = attachment?.type ?? "file";
+            const preview = type === "image" && url ? url : null;
+            return {
+              id: `${url ?? attachment?.name ?? "existing"}-${index}`,
+              type,
+              name: attachment?.name ?? null,
+              size: attachment?.size ?? null,
+              mimeType: attachment?.mimeType ?? null,
+              url,
+              preview,
+              isExisting: true,
+            };
+          })
+        : [];
+
+      setAttachments(existingAttachments);
+      setAttachmentError(null);
+    }, [editingMessage, mode]);
+
+    React.useEffect(() => {
+      if (mode === "edit") return;
+      setAttachments((previous) => previous.filter((attachment) => !attachment.isExisting));
+      setAttachmentError(null);
+    }, [mode]);
 
     React.useImperativeHandle(ref, () => ({
       focus: () => textareaRef.current?.focus(),
@@ -286,6 +304,12 @@ const ChatInput = React.forwardRef(
           return;
         }
 
+        if (attachmentsRef.current.length >= MAX_ATTACHMENTS) {
+          setRecordingError(`You can attach up to ${MAX_ATTACHMENTS} items.`);
+          setAttachmentError(`You can attach up to ${MAX_ATTACHMENTS} items.`);
+          return;
+        }
+
         const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
         if (!blob || blob.size === 0) {
           setRecordingError("Recording is empty. Try again.");
@@ -311,8 +335,11 @@ const ChatInput = React.forwardRef(
             size: file.size,
             preview,
             file,
+            mimeType: file.type ?? null,
+            isExisting: false,
           },
         ]);
+        setAttachmentError(null);
         setRecordingError(null);
       },
       [cleanupRecordingResources, setAttachments],
@@ -410,8 +437,24 @@ const ChatInput = React.forwardRef(
     };
 
     const handleAttachmentsSelected = (selectedFiles, forcedKind) => {
-      if (!selectedFiles.length) return;
-      const prepared = selectedFiles.map((file) => {
+      const files = Array.from(selectedFiles ?? []).filter(Boolean);
+      if (!files.length) return;
+
+      const existingCount = attachmentsRef.current.length;
+      const remainingSlots = MAX_ATTACHMENTS - existingCount;
+      if (remainingSlots <= 0) {
+        setAttachmentError(`You can attach up to ${MAX_ATTACHMENTS} items.`);
+        return;
+      }
+
+      const allowedFiles = files.slice(0, remainingSlots);
+      if (allowedFiles.length < files.length) {
+        setAttachmentError(`Only ${MAX_ATTACHMENTS} attachments are allowed per message.`);
+      } else {
+        setAttachmentError(null);
+      }
+
+      const prepared = allowedFiles.map((file) => {
         const kind = detectKind(file, forcedKind);
         const needsPreview = kind === "image" || kind === "video" || kind === "audio";
         const preview = needsPreview ? URL.createObjectURL(file) : null;
@@ -422,6 +465,8 @@ const ChatInput = React.forwardRef(
           name: file.name,
           size: file.size,
           preview,
+          mimeType: file.type ?? null,
+          isExisting: false,
         };
       });
 
@@ -456,37 +501,54 @@ const ChatInput = React.forwardRef(
 
     const handleAttachmentRemove = (id) => {
       setAttachments((previous) => {
-        const next = previous.filter((item) => item.id !== id);
         const removed = previous.find((item) => item.id === id);
-        if (removed?.preview) {
+        if (removed && !removed.isExisting && removed.preview) {
           URL.revokeObjectURL(removed.preview);
         }
+        const next = previous.filter((item) => item.id !== id);
         return next;
       });
+      setAttachmentError(null);
     };
 
     const dispatchSend = React.useCallback(
       (textValue) => {
         const text = (textValue ?? "").trim();
-        const attachmentsPayload =
-          mode === "edit"
-            ? []
-            : attachments.map((item) => ({
-              id: item.id,
-              type: item.type,
-              file: item.file,
-              name: item.name,
-              size: item.size,
-              preview: item.preview,
-            }));
-        if (!text && attachmentsPayload.length === 0) return;
+
+        const newUploads = attachments
+          .filter((item) => !item.isExisting && item.file)
+          .map((item) => ({
+            id: item.id,
+            type: item.type,
+            name: item.name,
+            size: item.size,
+            mimeType: item.mimeType ?? item.file?.type ?? null,
+            file: item.file,
+          }));
+
+        const keepExisting = attachments
+          .filter((item) => item.isExisting && item.url)
+          .map((item) => ({
+            url: item.url,
+            type: item.type,
+            name: item.name,
+            size: item.size,
+            mimeType: item.mimeType ?? null,
+          }));
+
+        const hasContent = text.length > 0;
+        const hasAttachments = newUploads.length > 0 || keepExisting.length > 0;
+        if (!hasContent && !hasAttachments) return;
+
         onSend?.({
           text,
-          attachments: attachmentsPayload,
           mode,
           replyTo: replyingTo,
           targetMessageId: editingMessage?.id ?? null,
+          newAttachments: newUploads,
+          keepAttachments: keepExisting,
         });
+
         if (!isControlled) {
           setInternalValue("");
         }
@@ -494,11 +556,12 @@ const ChatInput = React.forwardRef(
         setEmojiPickerState({ open: false, anchor: null });
         setDesktopAttachOpen(false);
         attachments.forEach((attachment) => {
-          if (attachment.preview) {
+          if (!attachment.isExisting && attachment.preview) {
             URL.revokeObjectURL(attachment.preview);
           }
         });
         setAttachments([]);
+        setAttachmentError(null);
         if (replyingTo) {
           onCancelReply?.();
         }
@@ -848,7 +911,7 @@ const ChatInput = React.forwardRef(
                       className="relative h-20 w-20 overflow-hidden rounded-xl border border-[#23323c] bg-[#111b21]/80 shadow-sm shadow-black/30"
                     >
                       <img
-                        src={attachment.preview}
+                        src={attachment.preview ?? attachment.url ?? ""}
                         alt={attachment.name ?? "Selected image"}
                         className="h-full w-full object-cover"
                       />
@@ -872,7 +935,7 @@ const ChatInput = React.forwardRef(
                     >
                       <audio
                         controls
-                        src={attachment.preview ?? attachment.data ?? ""}
+                        src={attachment.preview ?? attachment.url ?? ""}
                         className="w-full"
                       />
                       <div className="flex items-center justify-between gap-2">
@@ -908,7 +971,18 @@ const ChatInput = React.forwardRef(
                       <FiPaperclip className="h-5 w-5" />
                     </span>
                     <div className="flex min-w-0 flex-col">
-                      <span className="truncate text-sm text-[#e9edef]">{attachment.name ?? "Document"}</span>
+                      {attachment.url ? (
+                        <a
+                          href={attachment.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="truncate text-sm text-[#25d366] hover:underline"
+                        >
+                          {attachment.name ?? "Document"}
+                        </a>
+                      ) : (
+                        <span className="truncate text-sm text-[#e9edef]">{attachment.name ?? "Document"}</span>
+                      )}
                       {attachment.size ? (
                         <span className="text-xs text-[#667781]">{formatBytes(attachment.size)}</span>
                       ) : null}
@@ -926,6 +1000,9 @@ const ChatInput = React.forwardRef(
               })}
             </div>
           )}
+          {attachmentError ? (
+            <p className="mt-2 text-xs text-[#ffb3c1] sm:text-sm">{attachmentError}</p>
+          ) : null}
         </div>
 
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">

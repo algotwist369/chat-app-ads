@@ -84,12 +84,14 @@ const serializeReaction = (reactionDoc) => {
 
 const serializeAttachment = (attachmentDoc) => {
   if (!attachmentDoc) return null;
+  const url = attachmentDoc.url ?? attachmentDoc.data ?? null;
   return {
     type: attachmentDoc.type ?? "other",
     name: attachmentDoc.name ?? null,
     size: attachmentDoc.size ?? null,
     mimeType: attachmentDoc.mimeType ?? null,
-    data: attachmentDoc.url ?? null,
+    url,
+    data: url,
     preview: attachmentDoc.preview ?? null,
     metadata: attachmentDoc.metadata ?? {},
   };

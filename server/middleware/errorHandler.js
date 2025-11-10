@@ -1,8 +1,11 @@
 /* eslint-disable no-unused-vars */
+const multer = require("multer");
+
 const errorHandler = (err, req, res, next) => {
-  const status = err.status || err.statusCode || 500;
+  const isMulterError = err instanceof multer.MulterError;
+  const status = err.status || err.statusCode || (isMulterError ? 400 : 500);
   const payload = {
-    message: err.message || "Internal server error",
+    message: err.message || (isMulterError ? "Upload failed" : "Internal server error"),
   };
 
   if (process.env.NODE_ENV !== "production" && err.stack) {

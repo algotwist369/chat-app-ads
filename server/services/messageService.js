@@ -5,6 +5,11 @@ const {
   updateLastMessageSnapshot,
   getConversationById,
 } = require("./conversationService");
+const { deleteAttachmentFiles, mergeExistingAttachments, deriveStoragePathFromUrl } = require("../utils/fileStorage");
+const { determineAttachmentType } = require("../config/storage");
+
+const MAX_ATTACHMENTS = parseInt(process.env.MESSAGE_MAX_ATTACHMENTS ?? "5", 10);
+const MAX_TEXT_LENGTH = parseInt(process.env.MESSAGE_MAX_LENGTH ?? "2000", 10);
 
 const ensureMessageExists = async (messageId) => {
   if (!mongoose.Types.ObjectId.isValid(messageId)) {
@@ -44,6 +49,27 @@ const buildReplySnapshot = (replyPayload) => {
   };
 };
 
+const normalizeAttachmentInput = (attachments = []) => {
+  return attachments
+    .map((attachment) => {
+      if (!attachment) return null;
+      const type = attachment.type ?? determineAttachmentType(attachment.mimeType ?? "");
+      const url = attachment.url ?? attachment.data ?? null;
+      if (!url) return null;
+      return {
+        type,
+        name: attachment.name ?? null,
+        size: attachment.size ?? null,
+        mimeType: attachment.mimeType ?? null,
+        url,
+        preview: attachment.preview ?? null,
+        metadata: attachment.metadata ?? {},
+        storagePath: attachment.storagePath ?? deriveStoragePathFromUrl(url),
+      };
+    })
+    .filter(Boolean);
+};
+
 const createMessage = async (payload) => {
   const {
     conversationId,
@@ -55,19 +81,24 @@ const createMessage = async (payload) => {
     status = "sent",
   } = payload;
 
+  if (content && content.length > MAX_TEXT_LENGTH) {
+    throw Object.assign(
+      new Error(`Message exceeds maximum length of ${MAX_TEXT_LENGTH} characters.`),
+      { status: 400 },
+    );
+  }
+
   const conversation = await getConversationById(conversationId);
 
   const authorModel = authorType === "manager" ? "Manager" : authorType === "customer" ? "Customer" : undefined;
 
-  const attachmentRecords = attachments.map((attachment) => ({
-    type: attachment.type ?? "other",
-    name: attachment.name ?? null,
-    size: attachment.size ?? null,
-    mimeType: attachment.mimeType ?? attachment.type ?? null,
-    url: attachment.url ?? attachment.data ?? null,
-    preview: attachment.preview ?? null,
-    metadata: attachment.metadata ?? {},
-  }));
+  const normalizedAttachments = normalizeAttachmentInput(attachments);
+  if (normalizedAttachments.length > MAX_ATTACHMENTS) {
+    throw Object.assign(
+      new Error(`A maximum of ${MAX_ATTACHMENTS} attachments is allowed per message.`),
+      { status: 400 },
+    );
+  }
 
   const message = await Message.create({
     conversation: conversation._id,
@@ -75,7 +106,7 @@ const createMessage = async (payload) => {
     author: authorId ?? undefined,
     authorModel,
     content,
-    attachments: attachmentRecords,
+    attachments: normalizedAttachments,
     status,
     replyTo: buildReplySnapshot(replyTo),
   });
@@ -95,7 +126,7 @@ const createMessage = async (payload) => {
 
   const snippet = content?.trim()
     ? content.trim().slice(0, 160)
-    : determineAttachmentSnippet(attachmentRecords);
+    : determineAttachmentSnippet(normalizedAttachments);
 
   await updateLastMessageSnapshot(conversation._id, {
     snippet,
@@ -106,6 +137,12 @@ const createMessage = async (payload) => {
 };
 
 const updateMessageContent = async ({ messageId, content }) => {
+  if (content && content.length > MAX_TEXT_LENGTH) {
+    throw Object.assign(
+      new Error(`Message exceeds maximum length of ${MAX_TEXT_LENGTH} characters.`),
+      { status: 400 },
+    );
+  }
   const message = await ensureMessageExists(messageId);
   message.content = content;
   message.editedAt = new Date();
@@ -115,15 +152,32 @@ const updateMessageContent = async ({ messageId, content }) => {
 
 const replaceMessageAttachments = async ({ messageId, attachments = [] }) => {
   const message = await ensureMessageExists(messageId);
-  message.attachments = attachments.map((attachment) => ({
-    type: attachment.type ?? "other",
-    name: attachment.name ?? null,
-    size: attachment.size ?? null,
-    mimeType: attachment.mimeType ?? attachment.type ?? null,
-    url: attachment.url ?? attachment.data ?? null,
-    preview: attachment.preview ?? null,
-    metadata: attachment.metadata ?? {},
-  }));
+  const existing = message.attachments ?? [];
+  const keepList = Array.isArray(attachments.keep) ? attachments.keep : [];
+  const uploads = Array.isArray(attachments.uploads) ? attachments.uploads : Array.isArray(attachments) ? attachments : [];
+
+  const retained = mergeExistingAttachments(existing, keepList);
+  const newUploads = normalizeAttachmentInput(uploads);
+
+  const combined = [...retained, ...newUploads];
+  if (combined.length > MAX_ATTACHMENTS) {
+    throw Object.assign(
+      new Error(`A maximum of ${MAX_ATTACHMENTS} attachments is allowed per message.`),
+      { status: 400 },
+    );
+  }
+
+  const combinedUrls = new Set(combined.map((attachment) => attachment.url));
+  const removed = existing.filter((attachment) => {
+    const key = attachment.url ?? attachment.data ?? null;
+    return key && !combinedUrls.has(key);
+  });
+
+  if (removed.length) {
+    await deleteAttachmentFiles(removed);
+  }
+
+  message.attachments = combined;
   message.editedAt = new Date();
   await message.save();
   return message;
@@ -156,6 +210,9 @@ const toggleReaction = async ({ messageId, emoji, actorType }) => {
 
 const deleteMessage = async ({ messageId }) => {
   const message = await ensureMessageExists(messageId);
+  if (Array.isArray(message.attachments) && message.attachments.length) {
+    await deleteAttachmentFiles(message.attachments);
+  }
   await message.deleteOne();
   return message;
 };

@@ -9,6 +9,8 @@ const {
   ensureMessageExists,
 } = require("../services/messageService");
 const { serializeMessage } = require("../utils/serializers");
+const { invalidateConversationCaches } = require("../utils/cache");
+const { buildAttachmentRecordFromFile, deleteAttachmentFiles } = require("../utils/fileStorage");
 
 const handleValidation = (req) => {
   const errors = validationResult(req);
@@ -22,10 +24,63 @@ const handleValidation = (req) => {
 
 const sendMessage = asyncHandler(async (req, res) => {
   handleValidation(req);
-  const message = await createMessage(req.body);
-  res.status(201).json({
-    message: serializeMessage(message),
-  });
+  const parseField = (value, fallback = null) => {
+    if (typeof value === "string") {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value;
+      }
+    }
+    return value ?? fallback;
+  };
+
+  const parseArrayField = (value) => {
+    if (typeof value === "string") {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [];
+      }
+    }
+    return Array.isArray(value) ? value : [];
+  };
+
+  const uploads = Array.isArray(req.files)
+    ? req.files.map(buildAttachmentRecordFromFile).filter(Boolean)
+    : [];
+  const referencedAttachments = parseArrayField(req.body.attachments);
+
+  const payload = {
+    conversationId: req.body.conversationId,
+    authorType: req.body.authorType,
+    authorId: req.body.authorId,
+    content: typeof req.body.content === "string" ? req.body.content : "",
+    attachments: [...uploads, ...referencedAttachments],
+    replyTo: (() => {
+      const parsed = parseField(req.body.replyTo, null);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    })(),
+    status: req.body.status,
+  };
+
+  try {
+    const message = await createMessage(payload);
+    await invalidateConversationCaches(message.conversation.toString());
+
+    const serialized = serializeMessage(message);
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`conversation:${serialized.conversationId}`).emit("message:new", serialized);
+    }
+
+    res.status(201).json({
+      message: serialized,
+    });
+  } catch (error) {
+    await deleteAttachmentFiles(uploads);
+    throw error;
+  }
 });
 
 const editMessage = asyncHandler(async (req, res) => {
@@ -36,24 +91,54 @@ const editMessage = asyncHandler(async (req, res) => {
   if (req.body.content !== undefined) {
     updates.content = req.body.content;
   }
-  if (req.body.attachments !== undefined) {
-    updates.attachments = req.body.attachments;
-  }
+  const uploads = Array.isArray(req.files)
+    ? req.files.map(buildAttachmentRecordFromFile).filter(Boolean)
+    : [];
+
+  const parseArrayField = (value) => {
+    if (typeof value === "string") {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return [];
+      }
+    }
+    return Array.isArray(value) ? value : [];
+  };
+
+  const keepAttachments = parseArrayField(req.body.keepAttachments ?? req.body.attachments);
 
   let message;
   if (updates.content !== undefined) {
     message = await updateMessageContent({ messageId, content: updates.content });
   }
-  if (updates.attachments !== undefined) {
-    message = await replaceMessageAttachments({ messageId, attachments: updates.attachments });
+  if (uploads.length || keepAttachments.length) {
+    try {
+      message = await replaceMessageAttachments({
+        messageId,
+        attachments: {
+          uploads,
+          keep: keepAttachments,
+        },
+      });
+    } catch (error) {
+      await deleteAttachmentFiles(uploads);
+      throw error;
+    }
   }
 
   if (!message) {
     message = await ensureMessageExists(messageId);
   }
 
+  await invalidateConversationCaches(message.conversation.toString());
+  const serialized = serializeMessage(message);
+  const io = req.app.get("io");
+  if (io) {
+    io.to(`conversation:${serialized.conversationId}`).emit("message:updated", serialized);
+  }
   res.json({
-    message: serializeMessage(message),
+    message: serialized,
   });
 });
 
@@ -61,10 +146,16 @@ const deleteMessageHandler = asyncHandler(async (req, res) => {
   handleValidation(req);
   const { messageId } = req.params;
   const message = await deleteMessage({ messageId });
-  res.json({
+  await invalidateConversationCaches(message.conversation.toString());
+  const payload = {
     messageId: messageId,
     conversationId: message.conversation.toString(),
-  });
+  };
+  const io = req.app.get("io");
+  if (io) {
+    io.to(`conversation:${payload.conversationId}`).emit("message:deleted", payload);
+  }
+  res.json(payload);
 });
 
 const toggleReactionHandler = asyncHandler(async (req, res) => {
@@ -72,8 +163,14 @@ const toggleReactionHandler = asyncHandler(async (req, res) => {
   const { messageId } = req.params;
   const { emoji, actorType } = req.body;
   const message = await toggleReaction({ messageId, emoji, actorType });
+  await invalidateConversationCaches(message.conversation.toString());
+  const serialized = serializeMessage(message);
+  const io = req.app.get("io");
+  if (io) {
+    io.to(`conversation:${serialized.conversationId}`).emit("message:reaction", serialized);
+  }
   res.json({
-    message: serializeMessage(message),
+    message: serialized,
   });
 });
 

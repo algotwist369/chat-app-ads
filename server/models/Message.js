@@ -35,6 +35,11 @@ const AttachmentSchema = new Schema(
       of: Schema.Types.Mixed,
       default: () => ({}),
     },
+    storagePath: {
+      type: String,
+      trim: true,
+      select: true,
+    },
   },
   { _id: false },
 );
@@ -155,6 +160,7 @@ const MessageSchema = new Schema(
       type: String,
       trim: true,
       default: "",
+      maxlength: parseInt(process.env.MESSAGE_MAX_LENGTH ?? "2000", 10),
     },
     attachments: {
       type: [AttachmentSchema],

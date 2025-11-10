@@ -12,62 +12,27 @@ const systemBubble = {
   time: "08:00",
 };
 
-const dummyMessages = [
-  {
-    id: "msg-1",
-    authorId: "self",
-    authorName: "You",
-    avatar: "https://i.pravatar.cc/120?img=10",
-    content: "Morning! Here’s the latest campaign copy and the styles we discussed yesterday.",
-    media: null,
-    time: "08:42",
-    status: "read",
-    reactions: [
-      { emoji: "👍", count: 3 },
-      { emoji: "🔥", count: 1 },
-    ],
-  },
-  {
-    id: "msg-2",
-    authorId: "amy",
-    authorName: "Amy Santiago",
-    avatar: "https://i.pravatar.cc/120?img=1",
-    content: "Looks solid! Can we add a follow-up CTA just below the hero paragraph?",
-    media: null,
-    time: "08:46",
-    status: "delivered",
-    reactions: [{ emoji: "✅", count: 1 }],
-  },
-  {
-    id: "msg-3",
-    authorId: "self",
-    authorName: "You",
-    avatar: "https://i.pravatar.cc/120?img=10",
-    content: "Done ✅\nI also tweaked the color palette to match the brand refresh.",
-    media: {
-      type: "image",
-      src: "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?w=800",
-      alt: "Preview design mock",
-    },
-    time: "08:50",
-    status: "read",
-    reactions: [{ emoji: "😍", count: 2 }],
-  },
-  {
-    id: "msg-4",
-    authorId: "amy",
-    authorName: "Amy Santiago",
-    avatar: "https://i.pravatar.cc/120?img=1",
-    content: "Amazing! Sending to the client now. Fingers crossed we get a same-day approval 🤞",
-    media: null,
-    time: "08:55",
-    status: "received",
-    reactions: [],
-  },
-];
+const MESSAGE_MAX_LENGTH = Number(import.meta.env?.VITE_MESSAGE_MAX_LENGTH ?? "2000");
+
+const ChatSkeleton = () => (
+  <div className="flex flex-col gap-4 animate-pulse">
+    {Array.from({ length: 5 }).map((_, index) => (
+      <div
+        key={index}
+        className={cn(
+          "flex max-w-[90%] flex-col gap-2 rounded-2xl px-3 py-2",
+          index % 2 === 0 ? "self-start bg-[#0f1a21]" : "self-end bg-[#0f1a21]",
+        )}
+      >
+        <div className="h-3 w-20 rounded-full bg-[#1f2c34]" />
+        <div className="h-16 w-full rounded-2xl bg-[#1f2c34]" />
+      </div>
+    ))}
+  </div>
+);
 
 const ChatWindow = ({
-  messages = dummyMessages,
+  messages = [],
   systemMessage = systemBubble,
   conversationTitle,
   conversationMeta,
@@ -90,6 +55,7 @@ const ChatWindow = ({
   onCancelEdit,
   typingParticipants = [],
   className,
+  isLoading = false,
 }) => {
   const containerRef = React.useRef(null);
   const [searchTerm, setSearchTerm] = React.useState("");
@@ -174,8 +140,10 @@ const ChatWindow = ({
           ref={containerRef}
           className="flex h-full flex-col gap-6 overflow-y-auto bg-[url('https://cdn.pixabay.com/photo/2021/09/09/20/47/candles-6611567_1280.jpg')] bg-cover bg-center px-3 py-4 sm:px-6 sm:py-6"
         >
-          {!isSearching && systemMessage && <SystemBubble message={systemMessage} />}
-          {showingHasMessages ? (
+          {!isSearching && systemMessage && !isLoading && <SystemBubble message={systemMessage} />}
+          {isLoading ? (
+            <ChatSkeleton />
+          ) : showingHasMessages ? (
             <>
               {!isSearching && <DateDivider label="Today" />}
               {isSearching && (
@@ -238,6 +206,7 @@ const ChatWindow = ({
           mode={editingMessage ? "edit" : "new"}
           showAttachButton={!editingMessage}
           showMicButton={!editingMessage}
+          maxLength={MESSAGE_MAX_LENGTH}
         />
       </div>
     </section>

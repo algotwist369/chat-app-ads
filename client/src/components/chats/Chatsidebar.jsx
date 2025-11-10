@@ -2,99 +2,18 @@ import React from "react";
 import { FiSearch, FiUserPlus, FiArrowLeft, FiMoreVertical, FiCheckCircle, FiLogOut, FiSettings } from "react-icons/fi";
 import { cn } from "../common/utils";
 import useBreakpoint from "../common/useBreakpoint";
-
-const dummyChats = [
-  {
-    id: "chat-1",
-    name: "Design Squad",
-    meta: "Campaign launch · 4 people",
-    lastMessage: "Mockups look 🔥! ship it tomorrow",
-    unreadCount: 4,
-    pinned: true,
-    muted: false,
-    status: "active",
-    lastActive: "09:42",
-    avatar: "https://i.pravatar.cc/120?img=4",
-  },
-  {
-    id: "chat-2",
-    name: "Marketing Sync",
-    meta: "Weekly status · 6 people",
-    lastMessage: "Deck updated with the funnel metrics.",
-    unreadCount: 0,
-    pinned: false,
-    muted: true,
-    status: "silent",
-    lastActive: "08:15",
-    avatar: "https://i.pravatar.cc/120?img=5",
-  },
-  {
-    id: "chat-3",
-    name: "Client - Aurora Co.",
-    meta: "External · Contracts",
-    lastMessage: "Timeline approved. Contract signed!",
-    unreadCount: 2,
-    pinned: true,
-    muted: false,
-    status: "online",
-    lastActive: "07:33",
-    avatar: "https://i.pravatar.cc/120?img=6",
-  },
-  {
-    id: "chat-4",
-    name: "Product Roadmap",
-    meta: "Roadmap planning",
-    lastMessage: "Added a new epic for Q3 goals.",
-    unreadCount: 0,
-    pinned: false,
-    muted: false,
-    status: "idle",
-    lastActive: "Yesterday",
-    avatar: "https://i.pravatar.cc/120?img=7",
-  },
-  {
-    id: "chat-5",
-    name: "Support Team",
-    meta: "Priority queue",
-    lastMessage: "Escalated ticket #2842 to engineering.",
-    unreadCount: 7,
-    pinned: false,
-    muted: false,
-    status: "busy",
-    lastActive: "Yesterday",
-    avatar: "https://i.pravatar.cc/120?img=8",
-  },
-  {
-    id: "chat-6",
-    name: "Finance Check-in",
-    meta: "Budget review",
-    lastMessage: "Budget doc shared for approval.",
-    unreadCount: 0,
-    pinned: false,
-    muted: true,
-    status: "offline",
-    lastActive: "Mon",
-    avatar: "https://i.pravatar.cc/120?img=9",
-  },
-];
+import { MdVerified } from "react-icons/md";
 
 const tabs = [
   { id: "all", label: "All" },
   { id: "unread", label: "Unread" },
-  { id: "pinned", label: "Pinned" },
-  { id: "muted", label: "Muted" },
   { id: "online", label: "Online" },
-  { id: "offline", label: "Offline" },
-  { id: "busy", label: "Busy" },
-  { id: "silent", label: "Silent" },
+  { id: "offline", label: "Offline" }
 ];
 
 const presenceDotMap = {
   active: "bg-[#25d366]",
   online: "bg-[#25d366]",
-  silent: "bg-[#8696a0]",
-  idle: "bg-[#8696a0]",
-  busy: "bg-[#ff4d6d]",
   offline: "bg-[#54656f]",
 };
 
@@ -130,41 +49,35 @@ const ChatItem = ({
       onContext?.(chat);
     }}
     className={cn(
-      "group relative flex w-full items-start gap-3 rounded-3xl px-3 py-3 text-left transition-all duration-200 hover:bg-[#23323c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:px-4 sm:py-4",
-      active ? "bg-[#202c33]" : "bg-transparent",
+      "group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-200 hover:bg-[#23323c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:rounded-3xl sm:px-4 sm:py-3",
+      active ? "bg-[#1f2c34] shadow-inner shadow-black/30" : "bg-transparent",
     )}
   >
-    <span className="relative inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1f2c34] to-[#162026] text-lg font-semibold uppercase tracking-wide text-[#e9edef] sm:h-14 sm:w-14">
+    <span className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1f2c34] to-[#162026] text-base font-semibold uppercase tracking-wide text-[#e9edef] sm:h-12 sm:w-12">
       {showAvatarImage && chat.avatar ? (
         <img src={chat.avatar} alt={chat.name} className="h-full w-full rounded-full object-cover" />
       ) : (
         getInitials(chat.name)
       )}
-      {chat.unreadCount > 0 && (
-        <span className="absolute -right-1 -top-1 inline-flex min-w-[22px] items-center justify-center rounded-full bg-[#25d366] px-1.5 text-xs font-semibold text-[#06100d] shadow-md shadow-[#25d366]/40">
-          {chat.unreadCount}
+      {Number(chat.unreadCount) > 0 && (
+        <span className="absolute -right-1 -top-1 inline-flex min-w-[18px] max-h-[18px] items-center justify-center rounded-full bg-[#25d366] px-1 text-[0.65rem] font-semibold text-[#06100d] shadow-md shadow-[#25d366]/40">
+          {Number(chat.unreadCount) > 99 ? "99+" : Number(chat.unreadCount)}
         </span>
       )}
     </span>
 
-    <div className="flex min-w-0 flex-1 flex-col gap-2">
+    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
       <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold text-[#e9edef] sm:text-base">
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <div className="flex items-center gap-1.5">
+            <span className="truncate text-sm font-semibold text-[#e9edef] sm:text-[0.95rem]">
               {chat.name}
             </span>
             {chat.badge?.type === "verified" && (
-              <span
-                className="inline-flex items-center gap-1 rounded-full bg-[#1f2c34] px-2 py-0.5 text-[0.65rem] uppercase tracking-wide text-[#25d366]"
-                title={chat.badge.label ?? "Verified"}
-              >
-                <FiCheckCircle className="h-3 w-3" />
-                <span className="hidden sm:inline">{chat.badge.label ?? "Verified"}</span>
-              </span>
+              <MdVerified className="h-8 w-8 text-[#25d366]" title={chat.badge.label ?? "Verified"} />
             )}
           </div>
-          <div className="flex items-center gap-2 text-[0.7rem] text-[#8696a0] sm:text-xs">
+          <div className="flex items-center gap-2 text-[0.68rem] text-[#8696a0] sm:text-xs">
             <span
               aria-hidden
               className={cn(
@@ -177,29 +90,29 @@ const ChatItem = ({
             </span>
           </div>
         </div>
-        <span className="shrink-0 text-xs text-[#667781] sm:text-sm">
+        <span className="shrink-0 text-[0.68rem] text-[#667781] sm:text-xs">
           {chat.lastActive}
         </span>
       </div>
       <p
         className={cn(
-          "line-clamp-2 text-xs sm:text-sm transition-colors duration-200",
-          layout === "compact" && "line-clamp-1",
-          chat.unreadCount > 0 ? "text-[#e9edef] font-semibold" : "text-[#8696a0]",
+          "line-clamp-1 text-[0.74rem] text-[#8696a0] transition-colors duration-200 sm:text-sm",
+          chat.unreadCount > 0 && "font-semibold text-[#e9edef]",
+          layout === "compact" && "text-[0.7rem]",
         )}
       >
         {chat.lastMessage}
       </p>
     </div>
 
-    <span className="absolute right-4 top-4 hidden text-[#54656f] transition group-hover:text-[#25d366] sm:inline-flex">
+    <span className="absolute right-3 top-3 hidden text-[#54656f] transition group-hover:text-[#25d366] sm:inline-flex">
       {/* <FiMoreVertical className="h-4 w-4" /> */}
     </span>
   </button>
 );
 
 const ChatSidebar = ({
-  chats = dummyChats,
+  chats = [],
   locale = "en",
   onChatSelect,
   onSearchChange,
@@ -392,7 +305,7 @@ const ChatSidebar = ({
             {tab.label}
             {tab.id === "unread" && (
               <span className="ml-2 inline-flex h-5 min-w-[22px] items-center justify-center rounded-full bg-[#0b141a]/80 px-1.5 text-xs text-[#25d366]">
-                {chats.filter((item) => item.unreadCount > 0).length}
+                {chats.filter((item) => Number(item.unreadCount) > 0).length}
               </span>
             )}
             {tab.id === "pinned" && (
@@ -400,7 +313,12 @@ const ChatSidebar = ({
                 {chats.filter((item) => item.pinned).length}
               </span>
             )}
-            {["online", "offline", "busy", "silent"].includes(tab.id) && (
+            {tab.id === "muted" && (
+              <span className="ml-2 inline-flex h-5 min-w-[22px] items-center justify-center rounded-full bg-[#0b141a]/80 px-1.5 text-xs text-[#25d366]">
+                {chats.filter((item) => item.muted).length}
+              </span>
+            )}
+            {['online', 'offline', 'busy', 'silent'].includes(tab.id) && (
               <span className="ml-2 inline-flex h-5 min-w-[22px] items-center justify-center rounded-full bg-[#0b141a]/80 px-1.5 text-xs text-[#25d366]">
                 {chats.filter(
                   (item) => (item.status ?? "").toLowerCase() === tab.id,

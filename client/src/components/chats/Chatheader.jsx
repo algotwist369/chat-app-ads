@@ -30,10 +30,10 @@ const ChatHeader = ({
   compact = false,
   badge,
   className,
- }) => {
+}) => {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState(false);
-   const [searchValue, setSearchValue] = React.useState("");
+  const [searchValue, setSearchValue] = React.useState("");
   const presence = presenceColors[participant?.status ?? "offline"];
 
   const headerTitle = conversationTitle ?? participant?.name ?? "Conversation";
@@ -44,18 +44,18 @@ const ChatHeader = ({
   const toggleMenu = () => setIsMenuOpen((prev) => !prev);
   const closeMenu = () => setIsMenuOpen(false);
 
-   React.useEffect(() => {
-     if (!isSearchOpen) return undefined;
-     const handler = (event) => {
-       if (event.key === "Escape") {
-         setIsSearchOpen(false);
-         setSearchValue("");
-         onSearch?.("");
-       }
-     };
-     window.addEventListener("keydown", handler);
-     return () => window.removeEventListener("keydown", handler);
-   }, [isSearchOpen, onSearch]);
+  React.useEffect(() => {
+    if (!isSearchOpen) return undefined;
+    const handler = (event) => {
+      if (event.key === "Escape") {
+        setIsSearchOpen(false);
+        setSearchValue("");
+        onSearch?.("");
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [isSearchOpen, onSearch]);
 
   const getInitials = (name) => {
     if (!name) return "?";
@@ -79,7 +79,7 @@ const ChatHeader = ({
         />
       ) : (
         <span className="text-lg font-semibold uppercase tracking-wide text-[#e9edef]">
-          {getInitials(participant?.name)}
+          {getInitials(participant?.name ?? "")}
         </span>
       )}
       <span
@@ -136,36 +136,36 @@ const ChatHeader = ({
 
       <div className="flex items-center gap-1.5 sm:gap-2">
         <div className="relative flex items-center gap-2">
-           <button
-             type="button"
-             onClick={() =>
-               setIsSearchOpen((prev) => {
-                 const next = !prev;
-                 if (!next) {
-                   setSearchValue("");
-                   onSearch?.("");
-                 }
-                 return next;
-               })
-             }
+          <button
+            type="button"
+            onClick={() =>
+              setIsSearchOpen((prev) => {
+                const next = !prev;
+                if (!next) {
+                  setSearchValue("");
+                  onSearch?.("");
+                }
+                return next;
+              })
+            }
             className="flex h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-all duration-200 hover:bg-[#202c33] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:h-11 sm:w-11"
             aria-label="Search messages"
           >
             <FiSearch className="h-5 w-5" />
           </button>
-           {isSearchOpen && (
-             <div className="absolute right-12 top-1/2 hidden w-64 -translate-y-1/2 rounded-2xl border border-[#1f2c34] bg-[#0b141a] px-3 py-2 shadow-lg shadow-black/40 sm:flex">
+          {isSearchOpen && (
+            <div className="absolute right-12 top-1/2 hidden w-64 -translate-y-1/2 rounded-2xl border border-[#1f2c34] bg-[#0b141a] px-3 py-2 shadow-lg shadow-black/40 sm:flex">
               <input
                 type="text"
-                 value={searchValue}
+                value={searchValue}
                 autoFocus
                 placeholder="Search conversation"
-                 onChange={(event) => {
-                   const value = event.target.value;
-                   setSearchValue(value);
-                   onSearch?.(value);
-                 }}
-                 className="w-full bg-transparent text-sm text-[#e9edef] placeholder:text-[#667781] focus:outline-none"
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setSearchValue(value);
+                  onSearch?.(value);
+                }}
+                className="w-full bg-transparent text-sm text-[#e9edef] placeholder:text-[#667781] focus:outline-none"
               />
             </div>
           )}

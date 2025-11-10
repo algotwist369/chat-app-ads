@@ -31,6 +31,13 @@ const formatRelativeDate = (timestamp) => {
 const buildAvatar = (seed) =>
   `https://avatar.vercel.sh/${encodeURIComponent(seed ?? "guest")}?background=1f2c34&color=e9edef`;
 
+const logDebug = (...args) => {
+  if (import.meta.env?.DEV) {
+    // eslint-disable-next-line no-console
+    console.log("[Chat]", ...args);
+  }
+};
+
 const deriveMessageStatus = (message, perspective) => {
   if (!message) return "sent";
   if (perspective === "manager") {
@@ -56,13 +63,13 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
   const managerAvatar = manager.logo ?? buildAvatar(managerDisplayName);
   const customerAvatar = buildAvatar(customerDisplayName);
 
-    if (message.authorType === "system") {
+  if (message.authorType === "system") {
     return {
-        role: "system",
+      role: "system",
       id: message.id,
-        content: message.content,
+      content: message.content,
       createdAt: message.createdAt,
-        };
+    };
   }
 
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
@@ -114,10 +121,10 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
         (attachment?.mimeType?.startsWith("image/")
           ? "image"
           : attachment?.mimeType?.startsWith("video/")
-          ? "video"
-          : attachment?.mimeType?.startsWith("audio/")
-          ? "audio"
-          : "file"),
+            ? "video"
+            : attachment?.mimeType?.startsWith("audio/")
+              ? "audio"
+              : "file"),
       name: attachment?.name ?? null,
       size: attachment?.size ?? null,
       mimeType: attachment?.mimeType ?? null,
@@ -127,40 +134,40 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
 
   const reactions = Array.isArray(message.reactions)
     ? message.reactions
-        .map((reaction) => {
-          if (!reaction?.emoji) return null;
-          const reactors = reaction.reactors ?? {};
-          const count = Object.keys(reactors).filter((key) => reactors[key]).length;
-          if (!count) return null;
-          return {
-            emoji: reaction.emoji,
-            count,
-            selfReacted: Boolean(reactors[perspective]),
-          };
-        })
-        .filter(Boolean)
+      .map((reaction) => {
+        if (!reaction?.emoji) return null;
+        const reactors = reaction.reactors ?? {};
+        const count = Object.keys(reactors).filter((key) => reactors[key]).length;
+        if (!count) return null;
+        return {
+          emoji: reaction.emoji,
+          count,
+          selfReacted: Boolean(reactors[perspective]),
+        };
+      })
+      .filter(Boolean)
     : [];
 
   const replyPayload = message.replyTo ?? null;
-    const replyPreview =
+  const replyPreview =
     replyPayload?.content && replyPayload.content.length > 140
       ? `${replyPayload.content.slice(0, 137)}...`
       : replyPayload?.content ?? "";
   const replyTo = replyPayload
-      ? {
-        messageId: replyPayload.messageId ?? replyPayload.id ?? null,
-        authorName: replyPayload.authorName ?? "Unknown",
-        content: replyPayload.content ?? "",
-        hasMedia: Boolean(replyPayload.hasMedia),
-        preview: replyPreview || (replyPayload.hasMedia ? "Attachment" : ""),
-        }
-      : null;
+    ? {
+      messageId: replyPayload.messageId ?? replyPayload.id ?? null,
+      authorName: replyPayload.authorName ?? "Unknown",
+      content: replyPayload.content ?? "",
+      hasMedia: Boolean(replyPayload.hasMedia),
+      preview: replyPreview || (replyPayload.hasMedia ? "Attachment" : ""),
+    }
+    : null;
 
   return {
-      id: message.id,
-      authorId: isManagerMessage ? manager.id : customer.id,
-      authorName: isManagerMessage ? managerDisplayName : customerDisplayName,
-      avatar: isManagerMessage ? managerAvatar : customerAvatar,
+    id: message.id,
+    authorId: isManagerMessage ? manager.id : customer.id,
+    authorName: isManagerMessage ? managerDisplayName : customerDisplayName,
+    avatar: isManagerMessage ? managerAvatar : customerAvatar,
     content: message.content ?? "",
     media,
     attachments: normalizedAttachments,
@@ -189,29 +196,29 @@ const adaptConversation = (conversation, perspective) => {
   const adaptedMessages =
     Array.isArray(conversation.messages) && conversation.messages.length
       ? conversation.messages
-          .map((message) =>
-            adaptMessage({
-              message,
-              manager,
-              customer,
-              perspective,
-            }),
-          )
-          .filter((message) => message && message.role !== "system")
+        .map((message) =>
+          adaptMessage({
+            message,
+            manager,
+            customer,
+            perspective,
+          }),
+        )
+        .filter((message) => message && message.role !== "system")
       : [];
 
   const systemMessage =
     Array.isArray(conversation.messages) && conversation.messages.length
       ? conversation.messages
-          .map((message) =>
-            adaptMessage({
-              message,
-              manager,
-              customer,
-              perspective,
-            }),
-          )
-          .find((message) => message?.role === "system") ?? null
+        .map((message) =>
+          adaptMessage({
+            message,
+            manager,
+            customer,
+            perspective,
+          }),
+        )
+        .find((message) => message?.role === "system") ?? null
       : null;
 
   const lastMessage = adaptedMessages[adaptedMessages.length - 1] ?? null;
@@ -254,11 +261,11 @@ const adaptConversation = (conversation, perspective) => {
     messages: adaptedMessages,
     systemMessage: systemMessage
       ? {
-          role: "system",
-          name: "System",
-          content: systemMessage.content,
-          time: formatTime(systemMessage.createdAt),
-        }
+        role: "system",
+        name: "System",
+        content: systemMessage.content,
+        time: formatTime(systemMessage.createdAt),
+      }
       : null,
     sidebar: {
       lastActive,
@@ -295,10 +302,16 @@ const Chat = () => {
   const [typingIndicators, setTypingIndicators] = React.useState({});
   const [transientError, setTransientError] = React.useState(null);
   const [loadingConversationId, setLoadingConversationId] = React.useState(null);
+  const rawConversationsRef = React.useRef(rawConversations);
+
+  React.useEffect(() => {
+    rawConversationsRef.current = rawConversations;
+  }, [rawConversations]);
 
   const socketRef = React.useRef(null);
   const typingTimeoutRef = React.useRef(null);
   const audioContextRef = React.useRef(null);
+  const audioUnlockedRef = React.useRef(false);
 
   const isSocketConnected = React.useCallback(
     () => Boolean(socketRef.current && socketRef.current.connected),
@@ -328,17 +341,21 @@ const Chat = () => {
         } else if (audioContextRef.current.state === "suspended") {
           audioContextRef.current.resume();
         }
+        audioUnlockedRef.current =
+          audioContextRef.current?.state === "running" || audioContextRef.current?.state === "interactive";
       } catch (error) {
         console.error("Unable to initialize audio context", error);
       }
-      document.removeEventListener("click", unlockAudio);
-      document.removeEventListener("keydown", unlockAudio);
-      document.removeEventListener("touchstart", unlockAudio);
+      if (audioUnlockedRef.current) {
+        document.removeEventListener("click", unlockAudio);
+        document.removeEventListener("keydown", unlockAudio);
+        document.removeEventListener("touchstart", unlockAudio);
+      }
     };
 
-    document.addEventListener("click", unlockAudio);
-    document.addEventListener("keydown", unlockAudio);
-    document.addEventListener("touchstart", unlockAudio);
+    document.addEventListener("click", unlockAudio, { once: false });
+    document.addEventListener("keydown", unlockAudio, { once: false });
+    document.addEventListener("touchstart", unlockAudio, { once: false });
 
     return () => {
       document.removeEventListener("click", unlockAudio);
@@ -349,6 +366,10 @@ const Chat = () => {
 
   const playNotificationSound = React.useCallback(() => {
     if (typeof window === "undefined") return;
+    if (!audioUnlockedRef.current) {
+      logDebug("audio:skipped", "context not unlocked yet");
+      return;
+    }
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     if (!AudioContextClass) return;
 
@@ -359,6 +380,10 @@ const Chat = () => {
       const ctx = audioContextRef.current;
       if (ctx.state === "suspended") {
         ctx.resume();
+      }
+      if (ctx.state !== "running" && ctx.state !== "interactive") {
+        logDebug("audio:skipped", "context state", ctx.state);
+        return;
       }
 
       const oscillator = ctx.createOscillator();
@@ -433,10 +458,15 @@ const Chat = () => {
       if (!force) {
         const cachedConversation = getCacheItem(conversationCacheKey);
         if (cachedConversation?.id) {
-          setRawConversations((previous) => ({
-            ...previous,
-            [conversationId]: cachedConversation,
-          }));
+          logDebug("refreshConversation: hydrate from cache", conversationId);
+          setRawConversations((previous) => {
+            const nextState = {
+              ...previous,
+              [conversationId]: cachedConversation,
+            };
+            rawConversationsRef.current = nextState;
+            return nextState;
+          });
         }
       }
 
@@ -444,22 +474,78 @@ const Chat = () => {
         setLoadingConversationId(conversationId);
       }
       try {
+        logDebug("refreshConversation: fetching", conversationId, "force", force);
         const { conversation } = await fetchConversationById(conversationId);
         if (!conversation) return;
 
-        setRawConversations((previous) => ({
-          ...previous,
-          [conversationId]: conversation,
-        }));
+        let mergedConversationRecord = conversation;
+        setRawConversations((previous) => {
+          const existing = previous[conversationId];
+          if (!existing) {
+            logDebug("refreshConversation: no existing state; setting fresh conversation", conversationId);
+            const nextState = {
+              ...previous,
+              [conversationId]: conversation,
+            };
+            rawConversationsRef.current = nextState;
+            mergedConversationRecord = conversation;
+            return nextState;
+          }
 
-        setCacheItem(conversationCacheKey, conversation, 60 * 1000);
+          const existingMessages = Array.isArray(existing.messages) ? existing.messages : [];
+          const incomingMessages = Array.isArray(conversation.messages) ? conversation.messages : [];
+          const mergedMap = new Map();
+          existingMessages.forEach((message) => {
+            if (!message) return;
+            const messageId = message.id ?? message._id ?? null;
+            if (messageId) mergedMap.set(String(messageId), message);
+          });
+          incomingMessages.forEach((message) => {
+            if (!message) return;
+            const messageId = message.id ?? message._id ?? null;
+            if (!messageId) return;
+            const key = String(messageId);
+            const previousMessage = mergedMap.get(key) ?? {};
+            mergedMap.set(key, { ...previousMessage, ...message });
+          });
+          const mergedMessages = Array.from(mergedMap.values()).sort(
+            (a, b) => new Date(a?.createdAt ?? 0) - new Date(b?.createdAt ?? 0),
+          );
+
+          const mergedConversation = {
+            ...existing,
+            ...conversation,
+            messages: mergedMessages,
+          };
+
+          mergedConversationRecord = mergedConversation;
+          logDebug(
+            "refreshConversation: merged messages",
+            conversationId,
+            "existing",
+            existingMessages.length,
+            "incoming",
+            incomingMessages.length,
+            "merged",
+            mergedMessages.length,
+          );
+
+          const nextState = {
+            ...previous,
+            [conversationId]: mergedConversation,
+          };
+          rawConversationsRef.current = nextState;
+          return nextState;
+        });
+
+        setCacheItem(conversationCacheKey, mergedConversationRecord, 60 * 1000);
 
         if (userType && user?.id) {
           const listKey = CACHE_KEYS.conversationList(userType, user.id);
           const cachedList = getCacheItem(listKey);
           if (Array.isArray(cachedList)) {
             const updated = [
-              conversation,
+              mergedConversationRecord,
               ...cachedList.filter((item) => item?.id && item.id !== conversation.id),
             ];
             setCacheItem(listKey, updated, 60 * 1000);
@@ -474,7 +560,287 @@ const Chat = () => {
         }
       }
     },
-    [userType, user?.id, showTransientError],
+    [
+      userType,
+      user?.id,
+      showTransientError,
+    ],
+  );
+
+  const buildSnippetFromMessage = React.useCallback((message) => {
+    if (!message) return "";
+    const text = (message.content ?? "").trim();
+    if (text) return text;
+    const attachments = Array.isArray(message.attachments) ? message.attachments : [];
+    if (attachments.length === 0) return "";
+    if (attachments.length === 1) {
+      const attachment = attachments[0];
+      const type = (attachment?.type ?? "").toLowerCase();
+      if (type === "image") return "Image";
+      if (type === "video") return "Video";
+      if (type === "audio") return "Audio";
+      return attachment?.name ? `File: ${attachment.name}` : "Attachment";
+    }
+    return `${attachments.length} attachments`;
+  }, []);
+
+  const mergeConversationMessage = React.useCallback(
+    (message, { prioritizeExisting = false, source = "unknown" } = {}) => {
+      if (!message) {
+        logDebug("mergeConversationMessage: skipped null message from", source);
+        return false;
+      }
+      const conversationKey =
+        message.conversationId ??
+        message.conversation?.id ??
+        message.conversation?.conversationId;
+      if (!conversationKey) {
+        logDebug("mergeConversationMessage: missing conversation id for message", message.id, "source", source);
+        return false;
+      }
+      const conversationId = String(conversationKey);
+
+      const normalizedId =
+        message.id ?? message._id ?? `${conversationId}:${message.clientRequestId ?? Date.now()}`;
+      const normalizedMessage = {
+        ...message,
+        id: normalizedId,
+        conversationId,
+      };
+
+      logDebug("mergeConversationMessage: merging", normalizedMessage.id, "into", conversationId, "source", source);
+
+      const timestamp = normalizedMessage?.createdAt ?? new Date().toISOString();
+      let createdConversation = false;
+      let conversationForCache = null;
+
+      setRawConversations((previous) => {
+        const existing = previous[conversationId];
+        const baseConversation = existing ?? {
+          id: conversationId,
+          manager: existing?.manager ?? {},
+          customer: existing?.customer ?? {},
+          messages: [],
+          sidebar: {
+            lastPreview: "",
+            lastActive: timestamp,
+            unreadCount: 0,
+            pinned: false,
+            muted: false,
+            status: "online",
+            avatar: null,
+          },
+          conversation: {
+            id: conversationId,
+            updatedAt: timestamp,
+            lastMessageAt: timestamp,
+            lastMessageSnippet: "",
+          },
+          unreadByManager: 0,
+          unreadByCustomer: 0,
+          status: "open",
+          updatedAt: timestamp,
+          lastMessageAt: timestamp,
+        };
+
+        if (!existing) {
+          createdConversation = true;
+          logDebug("mergeConversationMessage: creating placeholder conversation", conversationId);
+        }
+
+        const messages = Array.isArray(baseConversation.messages)
+          ? [...baseConversation.messages]
+          : [];
+        const index = messages.findIndex((item) => String(item?.id ?? item?._id) === String(normalizedMessage.id));
+        if (index >= 0) {
+          messages[index] = { ...messages[index], ...normalizedMessage };
+        } else {
+          messages.push(normalizedMessage);
+        }
+        if (!prioritizeExisting) {
+          messages.sort((a, b) => new Date(a?.createdAt ?? 0) - new Date(b?.createdAt ?? 0));
+        }
+
+        const lastMessage = messages[messages.length - 1] ?? null;
+        const snippetSource =
+          buildSnippetFromMessage(lastMessage ?? normalizedMessage) ||
+          buildSnippetFromMessage(normalizedMessage);
+        const snippet = snippetSource ? snippetSource.slice(0, 160) : snippetSource;
+        const lastTimestamp =
+          normalizedMessage?.createdAt ??
+          lastMessage?.createdAt ??
+          baseConversation.lastMessageAt ??
+          baseConversation.updatedAt ??
+          timestamp;
+
+        const nextConversation = {
+          ...baseConversation,
+          messages,
+          lastMessageAt: lastTimestamp,
+          lastMessageSnippet:
+            snippet ||
+            baseConversation.lastMessageSnippet ||
+            baseConversation.sidebar?.lastPreview ||
+            baseConversation.sidebar?.lastMessage ||
+            baseConversation.lastMessageSnippet,
+          updatedAt: lastTimestamp,
+        };
+
+        if (nextConversation.sidebar) {
+          nextConversation.sidebar = {
+            ...nextConversation.sidebar,
+            lastPreview:
+              snippet ||
+              nextConversation.sidebar.lastPreview ||
+              nextConversation.lastMessageSnippet,
+            lastActive: lastTimestamp,
+          };
+        }
+
+        if (nextConversation.conversation) {
+          nextConversation.conversation = {
+            ...nextConversation.conversation,
+            lastMessageAt: lastTimestamp,
+            lastMessageSnippet: snippet || nextConversation.conversation.lastMessageSnippet,
+            updatedAt: lastTimestamp,
+          };
+        }
+
+        if (normalizedMessage.authorType === "customer") {
+          nextConversation.unreadByManager = Math.max(
+            0,
+            (nextConversation.unreadByManager ?? 0) + 1,
+          );
+          if (isCustomer) {
+            nextConversation.unreadByCustomer = 0;
+          }
+        } else if (normalizedMessage.authorType === "manager") {
+          nextConversation.unreadByCustomer = Math.max(
+            0,
+            (nextConversation.unreadByCustomer ?? 0) + 1,
+          );
+          if (isManager) {
+            nextConversation.unreadByManager = 0;
+          }
+        }
+
+        conversationForCache = nextConversation;
+
+        const nextState = {
+          ...previous,
+          [conversationId]: nextConversation,
+        };
+        rawConversationsRef.current = nextState;
+        return nextState;
+      });
+
+      const latestConversation = rawConversationsRef.current?.[conversationId];
+      const messagesAfterMerge = Array.isArray(latestConversation?.messages)
+        ? latestConversation.messages
+        : [];
+      const inserted = messagesAfterMerge.some(
+        (item) => String(item?.id ?? item?._id) === String(normalizedMessage.id),
+      );
+
+      if (!inserted) {
+        logDebug("mergeConversationMessage: failed to update state for", normalizedMessage.id);
+        return false;
+      }
+
+      if (conversationForCache) {
+        setCacheItem(
+          CACHE_KEYS.conversation(conversationForCache.id ?? conversationId),
+          latestConversation ?? conversationForCache,
+          60 * 1000,
+        );
+      }
+
+      if (createdConversation) {
+        logDebug("mergeConversationMessage: placeholder created; scheduling refresh", conversationId);
+        refreshConversation(conversationId, { force: true, showSkeleton: false });
+      }
+
+      return true;
+    },
+    [buildSnippetFromMessage, isCustomer, isManager, refreshConversation],
+  );
+
+  const removeConversationMessage = React.useCallback(
+    (conversationIdInput, messageId) => {
+      if (!conversationIdInput) {
+        return false;
+      }
+      const conversationId = String(conversationIdInput);
+      if (!rawConversationsRef.current?.[conversationId]) {
+        return false;
+      }
+
+      logDebug("removeConversationMessage: removing", messageId, "from", conversationId);
+
+      let updatedConversation = null;
+      setRawConversations((previous) => {
+        const existing = previous[conversationId];
+        if (!existing) return previous;
+
+        const messages = Array.isArray(existing.messages)
+          ? existing.messages.filter((message) => message?.id !== messageId)
+          : [];
+        if (messages.length === existing.messages?.length) {
+          return previous;
+        }
+
+        const lastMessage = messages[messages.length - 1] ?? null;
+        const snippetSource =
+          buildSnippetFromMessage(lastMessage) ||
+          existing.lastMessageSnippet ||
+          existing.sidebar?.lastPreview ||
+          "";
+        const snippet = snippetSource ? snippetSource.slice(0, 160) : snippetSource;
+        const lastTimestamp = lastMessage?.createdAt ?? null;
+
+        const nextConversation = {
+          ...existing,
+          messages,
+          lastMessageAt: lastTimestamp,
+          lastMessageSnippet: snippet,
+          updatedAt: lastTimestamp ?? existing.updatedAt,
+        };
+
+        if (nextConversation.sidebar) {
+          nextConversation.sidebar = {
+            ...nextConversation.sidebar,
+            lastPreview: snippet || nextConversation.sidebar.lastPreview || "",
+            lastActive: lastTimestamp ?? nextConversation.sidebar.lastActive,
+          };
+        }
+
+        if (nextConversation.conversation) {
+          nextConversation.conversation = {
+            ...nextConversation.conversation,
+            lastMessageAt: lastTimestamp,
+            lastMessageSnippet: snippet,
+            updatedAt: lastTimestamp ?? nextConversation.conversation.updatedAt,
+          };
+        }
+
+        updatedConversation = nextConversation;
+        const nextState = {
+          ...previous,
+          [conversationId]: nextConversation,
+        };
+        rawConversationsRef.current = nextState;
+        return nextState;
+      });
+
+      if (updatedConversation) {
+        setCacheItem(CACHE_KEYS.conversation(conversationId), updatedConversation, 60 * 1000);
+        return true;
+      }
+
+      logDebug("removeConversationMessage: nothing changed for", messageId);
+      return false;
+    },
+    [buildSnippetFromMessage],
   );
 
   const fetchConversations = React.useCallback(async () => {
@@ -558,7 +924,7 @@ const Chat = () => {
     const entries = Object.values(rawConversations ?? {});
     return entries
       .map((conversation) => adaptConversation(conversation, userType))
-        .filter(Boolean)
+      .filter(Boolean)
       .sort(
         (a, b) =>
           new Date(b?.conversation?.updatedAt ?? 0).getTime() -
@@ -624,7 +990,14 @@ const Chat = () => {
 
     const handleMessageEvent = (message) => {
       if (!message?.conversationId) return;
-      refreshConversation(message.conversationId, { force: true, showSkeleton: false });
+      logDebug("socket:message:event", message.conversationId, message.id ?? message._id);
+      const merged = mergeConversationMessage(message, {
+        prioritizeExisting: true,
+        source: "socket:event",
+      });
+      if (!merged) {
+        refreshConversation(message.conversationId, { force: true, showSkeleton: false });
+      }
     };
 
     const handleMessageNew = (message) => {
@@ -644,12 +1017,39 @@ const Chat = () => {
         }
       }
 
-      refreshConversation(message.conversationId, { force: true, showSkeleton: false });
+      if (!message?.conversationId) return;
+      const conversationId = String(message.conversationId);
+      logDebug("socket:message:new", conversationId, message.id ?? message._id);
+      const existingMessages = rawConversationsRef.current?.[conversationId]?.messages ?? [];
+      const hadMessage = existingMessages.some(
+        (item) => String(item?.id ?? item?._id) === String(message.id ?? message._id),
+      );
+      const hadConversation = Boolean(rawConversationsRef.current?.[conversationId]);
+      const merged = mergeConversationMessage(message, { prioritizeExisting: true, source: "socket" });
+      const shouldForceRefresh = !hadConversation || !hadMessage || !merged;
+      refreshConversation(conversationId, {
+        force: shouldForceRefresh,
+        showSkeleton: false,
+      });
     };
 
-    const handleMessageDeleted = ({ conversationId }) => {
+    const handleMessageDeleted = ({ conversationId, messageId }) => {
       if (!conversationId) return;
-      refreshConversation(conversationId, { force: true, showSkeleton: false });
+      if (!rawConversationsRef.current?.[conversationId]) {
+        refreshConversation(conversationId, { force: true, showSkeleton: false });
+        return;
+      }
+      if (messageId) {
+        const hasMessage = rawConversationsRef.current?.[conversationId]?.messages?.some((item) => item?.id === messageId);
+        if (hasMessage) {
+          const removed = removeConversationMessage(conversationId, messageId);
+          if (!removed) {
+            refreshConversation(conversationId, { force: true, showSkeleton: false });
+          }
+        }
+      } else {
+        refreshConversation(conversationId, { force: true, showSkeleton: false });
+      }
     };
 
     const handleConversationDelivery = ({ conversationId }) => {
@@ -761,8 +1161,8 @@ const Chat = () => {
         viewerType,
       });
     }
-    markConversationDelivered({ conversationId: activeConversationId, viewerType }).catch(() => {});
-    markConversationRead({ conversationId: activeConversationId, viewerType }).catch(() => {});
+    markConversationDelivered({ conversationId: activeConversationId, viewerType }).catch(() => { });
+    markConversationRead({ conversationId: activeConversationId, viewerType }).catch(() => { });
   }, [activeConversationId, isManager, isCustomer]);
 
   const handleChatSelect = (chat) => {
@@ -820,11 +1220,11 @@ const Chat = () => {
 
       const replyDetails = payload?.replyTo
         ? {
-            id: payload.replyTo.messageId ?? payload.replyTo.id ?? null,
-            authorName: payload.replyTo.authorName ?? null,
-            content: payload.replyTo.content ?? "",
-            hasMedia: Boolean(payload.replyTo.hasMedia),
-          }
+          id: payload.replyTo.messageId ?? payload.replyTo.id ?? null,
+          authorName: payload.replyTo.authorName ?? null,
+          content: payload.replyTo.content ?? "",
+          hasMedia: Boolean(payload.replyTo.hasMedia),
+        }
         : null;
 
       const authorType = isManager ? "manager" : "customer";
@@ -852,12 +1252,18 @@ const Chat = () => {
             }
           });
 
-          await patchMessage(payload.targetMessageId, formData);
+          const response = await patchMessage(payload.targetMessageId, formData);
+          const updatedMessage = response?.message;
+          if (updatedMessage) {
+            const merged = mergeConversationMessage(updatedMessage, { prioritizeExisting: true, source: "send" });
+            if (!merged) {
+              refreshConversation(updatedMessage.conversationId, { force: true, showSkeleton: false });
+            }
+          }
           emitTyping(activeConversationId, false);
           setDraftValue("");
           setEditingMessage(null);
           setReplyTarget(null);
-          refreshConversation(activeConversationId, { force: true, showSkeleton: false });
           return;
         }
 
@@ -883,18 +1289,43 @@ const Chat = () => {
           }
         });
 
-        await postMessage(formData);
+        logDebug("post:message:send", activeConversationId, {
+          hasContent: Boolean(content),
+          attachmentCount: newAttachments.length,
+        });
+
+        const response = await postMessage(formData);
+        const savedMessage = response?.message;
+        if (savedMessage) {
+          const conversationId = String(savedMessage.conversationId ?? activeConversationId);
+          logDebug("post:message:success", conversationId, savedMessage.id ?? savedMessage._id);
+          const existingMessages =
+            rawConversationsRef.current?.[conversationId]?.messages ?? [];
+          const savedMessageId = String(savedMessage.id ?? savedMessage._id);
+          const hadMessage = existingMessages.some(
+            (item) => String(item?.id ?? item?._id) === savedMessageId,
+          );
+          const hadConversation = Boolean(rawConversationsRef.current?.[conversationId]);
+
+          const merged = mergeConversationMessage(savedMessage, { source: "post:success" });
+          const shouldForceRefresh = !hadConversation || !hadMessage || !merged;
+          refreshConversation(conversationId, {
+            force: shouldForceRefresh,
+            showSkeleton: false,
+          });
+        } else {
+          logDebug("post:message:no-payload", activeConversationId);
+        }
         emitTyping(activeConversationId, false);
         setDraftValue("");
         setReplyTarget(null);
-        refreshConversation(activeConversationId, { force: true, showSkeleton: false });
       } catch (error) {
         console.error("Failed to send message", error);
         showTransientError(
           error?.response?.data?.message ??
-            error?.response?.data?.error ??
-            error?.message ??
-            "Unable to send message right now.",
+          error?.response?.data?.error ??
+          error?.message ??
+          "Unable to send message right now.",
         );
       }
     },
@@ -903,6 +1334,7 @@ const Chat = () => {
       activeConversationId,
       emitTyping,
       isManager,
+      mergeConversationMessage,
       refreshConversation,
       setDraftValue,
       setEditingMessage,
@@ -923,24 +1355,29 @@ const Chat = () => {
         try {
           if (isSocketConnected() && socketRef.current) {
             socketRef.current.emit("message:delete", { messageId: message.id });
+            removeConversationMessage(activeConversationId, message.id);
           } else {
-            await removeMessage(message.id);
+            const response = await removeMessage(message.id);
+            const conversationId = response?.conversationId ?? activeConversationId;
+            const removed = removeConversationMessage(conversationId, message.id);
+            if (!removed) {
+              refreshConversation(conversationId, { force: true, showSkeleton: false });
+            }
           }
-      if (editingMessage?.id === message.id) {
-        setEditingMessage(null);
-        setDraftValue("");
-      }
-      if (replyTarget?.messageId === message.id) {
-        setReplyTarget(null);
-      }
-          refreshConversation(activeConversationId, { force: true, showSkeleton: false });
-      setMessageMenu(null);
+          if (editingMessage?.id === message.id) {
+            setEditingMessage(null);
+            setDraftValue("");
+          }
+          if (replyTarget?.messageId === message.id) {
+            setReplyTarget(null);
+          }
+          setMessageMenu(null);
         } catch (error) {
           console.error("Failed to delete message", error);
           showTransientError(
             error?.response?.data?.message ??
-              error?.response?.data?.error ??
-              "Unable to delete message right now.",
+            error?.response?.data?.error ??
+            "Unable to delete message right now.",
           );
         }
       };
@@ -950,8 +1387,10 @@ const Chat = () => {
       activeConversationId,
       editingMessage,
       isSocketConnected,
+      mergeConversationMessage,
       refreshConversation,
       replyTarget,
+      removeConversationMessage,
       showTransientError,
     ],
   );
@@ -970,15 +1409,21 @@ const Chat = () => {
               actorType,
             });
           } else {
-            await postReaction(message.id, { emoji, actorType });
+            const response = await postReaction(message.id, { emoji, actorType });
+            const updatedMessage = response?.message;
+            if (updatedMessage) {
+              const merged = mergeConversationMessage(updatedMessage, { prioritizeExisting: true, source: "reaction" });
+              if (!merged) {
+                refreshConversation(updatedMessage.conversationId, { force: true, showSkeleton: false });
+              }
+            }
           }
-          refreshConversation(activeConversationId, { force: true, showSkeleton: false });
         } catch (error) {
           console.error("Failed to toggle reaction", error);
           showTransientError(
             error?.response?.data?.message ??
-              error?.response?.data?.error ??
-              "Unable to update reaction right now.",
+            error?.response?.data?.error ??
+            "Unable to update reaction right now.",
           );
         }
       };
@@ -989,33 +1434,34 @@ const Chat = () => {
       isCustomer,
       isManager,
       isSocketConnected,
+      mergeConversationMessage,
       refreshConversation,
       showTransientError,
     ],
   );
 
   const handleSelectReply = React.useCallback((message) => {
-      if (!message) return;
-      setReplyTarget({
-        messageId: message.id,
-        authorId: message.authorId ?? null,
-        authorName: message.authorName ?? "Unknown",
-        content: message.content ?? "",
-        preview:
-          message.content && message.content.length > 140
-            ? `${message.content.slice(0, 137)}...`
-            : message.content ?? "",
-        hasMedia: Boolean(message.media),
-      });
-      setMessageMenu(null);
+    if (!message) return;
+    setReplyTarget({
+      messageId: message.id,
+      authorId: message.authorId ?? null,
+      authorName: message.authorName ?? "Unknown",
+      content: message.content ?? "",
+      preview:
+        message.content && message.content.length > 140
+          ? `${message.content.slice(0, 137)}...`
+          : message.content ?? "",
+      hasMedia: Boolean(message.media),
+    });
+    setMessageMenu(null);
   }, []);
 
   const handleSelectEdit = React.useCallback((message) => {
-      if (!message) return;
-      setEditingMessage(message);
-      setDraftValue(message.content ?? "");
-      setReplyTarget(null);
-      setMessageMenu(null);
+    if (!message) return;
+    setEditingMessage(message);
+    setDraftValue(message.content ?? "");
+    setReplyTarget(null);
+    setMessageMenu(null);
   }, []);
 
   const handleToggleMute = React.useCallback(
@@ -1073,8 +1519,8 @@ const Chat = () => {
         console.error("Failed to update mute state", error);
         showTransientError(
           error?.response?.data?.message ??
-            error?.response?.data?.error ??
-            "Unable to update mute setting right now.",
+          error?.response?.data?.error ??
+          "Unable to update mute setting right now.",
         );
       }
     },
@@ -1112,7 +1558,7 @@ const Chat = () => {
         Object.entries(previous).forEach(([conversationId, actors]) => {
           const filtered = Object.fromEntries(
             Object.entries(actors).filter(([, value]) => now - value.timestamp < TYPING_TIMEOUT),
-  );
+          );
           if (Object.keys(filtered).length > 0) {
             next[conversationId] = filtered;
           }
@@ -1158,7 +1604,7 @@ const Chat = () => {
             }))}
             activeChatId={activeChatId}
             onChatSelect={handleChatSelect}
-            onNewChat={() => {}}
+            onNewChat={() => { }}
             onClose={() => setSidebarOpen(false)}
             currentUser={user}
             currentUserType={userType}
@@ -1339,7 +1785,7 @@ const Chat = () => {
       {transientError ? (
         <div className="fixed bottom-6 right-6 z-40 max-w-sm rounded-2xl border border-[#ff4d6d]/40 bg-[#40121f]/90 px-4 py-3 text-sm text-[#ffb3c1] shadow-lg shadow-black/40">
           {transientError}
-          </div>
+        </div>
       ) : null}
     </div>
   );

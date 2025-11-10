@@ -74,7 +74,7 @@ const ChatItem = ({
               {chat.name}
             </span>
             {chat.badge?.type === "verified" && (
-              <MdVerified className="h-8 w-8 text-[#25d366]" title={chat.badge.label ?? "Verified"} />
+              <MdVerified className="h-4 w-4 text-[#25d366]" title={chat.badge.label ?? "Verified"} />
             )}
           </div>
           <div className="flex items-center gap-2 text-[0.68rem] text-[#8696a0] sm:text-xs">

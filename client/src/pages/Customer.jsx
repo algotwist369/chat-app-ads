@@ -148,7 +148,7 @@ const CustomerLogin = () => {
                 : "Enter your details to join the conversation."
             }
           >
-            {businessName ? `${businessName} — Customer Login` : "Customer Login"}
+            {businessName ? `${businessName} - Customer Login` : "Customer Login"}
           </Heading>
 
           {workspaceState.loading ? (

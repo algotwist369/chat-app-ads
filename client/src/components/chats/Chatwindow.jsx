@@ -3,6 +3,7 @@ import ChatHeader from "./Chatheader";
 import ChatInput from "./Chatinput";
 import { MessageBubble, SystemBubble, DateDivider } from "./Chatitems";
 import { cn } from "../common/utils";
+import { FiDownload, FiX } from "react-icons/fi";
 
 const systemBubble = {
   role: "system",
@@ -13,6 +14,97 @@ const systemBubble = {
 };
 
 const MESSAGE_MAX_LENGTH = Number(import.meta.env?.VITE_MESSAGE_MAX_LENGTH ?? "2000");
+
+const formatByteSize = (bytes) => {
+  if (!Number.isFinite(bytes)) return null;
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let value = bytes;
+  let unitIndex = 0;
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+  const formatted = value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1);
+  return `${formatted} ${units[unitIndex]}`;
+};
+
+const MediaLightbox = ({ media, onClose }) => {
+  const lightboxRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!media) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        onClose?.();
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [media, onClose]);
+
+  if (!media) return null;
+  const src = media.src ?? media.url ?? media.data ?? null;
+  if (!src) return null;
+  const type = (media.type ?? media.mimeType ?? "").toLowerCase();
+  const displayType = type.startsWith("video") ? "video" : type.startsWith("audio") ? "audio" : "image";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+      <div
+        ref={lightboxRef}
+        className="relative z-10 flex w-full max-w-4xl flex-col gap-4 rounded-3xl bg-[#0b141a] p-4 shadow-2xl shadow-black/40"
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 inline-flex h-10 w-10 items-center justify-center rounded-full bg-[#1f2c34] text-[#e9edef] transition-colors duration-150 hover:bg-[#23323c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
+          aria-label="Close preview"
+        >
+          <FiX className="h-5 w-5" />
+        </button>
+        <div className="max-h-[70vh] w-full overflow-hidden rounded-2xl bg-black">
+          {displayType === "video" ? (
+            <video src={src} controls autoPlay className="max-h-[70vh] w-full object-contain" preload="metadata">
+              Your browser does not support the video tag.
+            </video>
+          ) : displayType === "audio" ? (
+            <audio src={src} controls autoPlay className="w-full" />
+          ) : (
+            <img
+              src={src}
+              alt={media.alt ?? media.name ?? "Preview"}
+              className="h-full w-full object-contain"
+              loading="lazy"
+              decoding="async"
+            />
+          )}
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-1 flex-col gap-1">
+            <span className="text-sm font-semibold text-[#e9edef] sm:text-base">{media.name ?? "Media attachment"}</span>
+            {media.size ? (
+              <span className="text-xs text-[#8696a0]">{media.size}</span>
+            ) : null}
+          </div>
+          <a
+            href={src}
+            download={media.name ?? (displayType === "video" ? "video" : displayType === "audio" ? "audio" : "image")}
+            className="inline-flex items-center gap-2 rounded-full bg-[#25d366] px-4 py-2 text-sm font-semibold uppercase tracking-wide text-[#06100d] shadow-md shadow-[#25d366]/30 transition-colors duration-150 hover:bg-[#1dd460] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
+          >
+            <FiDownload className="h-4 w-4" />
+            Download
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ChatSkeleton = () => (
   <div className="flex flex-col gap-4 animate-pulse">
@@ -60,6 +152,21 @@ const ChatWindow = ({
   const containerRef = React.useRef(null);
   const [searchTerm, setSearchTerm] = React.useState("");
   const messageCountRef = React.useRef(0);
+  const [previewMedia, setPreviewMedia] = React.useState(null);
+
+  const handleOpenMedia = React.useCallback((media) => {
+    if (!media) return;
+    const src = media.src ?? media.url ?? media.data ?? media.preview ?? null;
+    if (!src) return;
+    const type = (media.type ?? media.mimeType ?? "").toLowerCase();
+    const sizeLabel = typeof media.size === "number" ? formatByteSize(media.size) : media.size ?? null;
+    setPreviewMedia({ ...media, src, type, size: sizeLabel });
+  }, []);
+
+  const handleCloseMedia = React.useCallback(() => {
+    setPreviewMedia(null);
+  }, []);
+
   const primaryParticipant = React.useMemo(() => {
     if (!Array.isArray(participants) || participants.length === 0) return null;
 
@@ -163,6 +270,7 @@ const ChatWindow = ({
                   }
                   onReact={onReact}
                   onContext={onMessageMenu}
+                  onMediaOpen={handleOpenMedia}
                 />
               ))}
             </>
@@ -209,6 +317,7 @@ const ChatWindow = ({
           maxLength={MESSAGE_MAX_LENGTH}
         />
       </div>
+      {previewMedia && <MediaLightbox media={previewMedia} onClose={handleCloseMedia} />}
     </section>
   );
 };

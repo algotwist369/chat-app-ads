@@ -17,6 +17,18 @@ import { postMessage, patchMessage, removeMessage, postReaction } from "../lib/m
 import { buildCustomerInviteLink } from "../lib/invite";
 import { getSocket } from "../lib/socketClient";
 import { getCacheItem, setCacheItem, removeCacheItem, CACHE_KEYS } from "../lib/cache";
+import { resolveApiBaseUrl } from "../lib/apiClient";
+
+const API_BASE_URL = resolveApiBaseUrl();
+
+const buildAssetUrl = (value) => {
+  if (!value) return null;
+  if (typeof value !== "string") return null;
+  if (/^(?:https?:|blob:|data:)/i.test(value)) return value;
+  if (!API_BASE_URL) return value.startsWith("/") ? value : `/${value}`;
+  const normalizedPath = value.startsWith("/") ? value : `/${value}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+};
 
 const formatTime = (timestamp) => {
   if (!timestamp) return "";
@@ -75,13 +87,21 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const mediaItems = attachments
     .map((attachment) => {
-      const src = attachment?.url ?? attachment?.data ?? attachment?.preview ?? null;
-      if (!src) return null;
+      const primarySrc =
+        attachment?.url ??
+        attachment?.path ??
+        attachment?.storagePath ??
+        attachment?.data ??
+        attachment?.preview ??
+        null;
+      const fallbackPreview = attachment?.preview ?? null;
+      const resolvedSrc = buildAssetUrl(primarySrc) ?? buildAssetUrl(fallbackPreview);
+      if (!resolvedSrc) return null;
       const type = (attachment.type ?? attachment?.mimeType ?? "file").toString().toLowerCase();
       if (type.startsWith("image") || type === "image") {
         return {
           type: "image",
-          src,
+          src: resolvedSrc,
           alt: attachment.name ?? "Shared image",
           name: attachment.name ?? undefined,
         };
@@ -89,20 +109,20 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
       if (type.startsWith("video") || type === "video") {
         return {
           type: "video",
-          src,
+          src: resolvedSrc,
           name: attachment.name ?? "Shared video",
         };
       }
       if (type.startsWith("audio") || type === "audio") {
         return {
           type: "audio",
-          src,
+          src: resolvedSrc,
           name: attachment.name ?? "Shared audio",
         };
       }
       return {
         type: "file",
-        src,
+        src: resolvedSrc,
         name: attachment.name ?? "Shared file",
         size: attachment.size ?? undefined,
       };
@@ -113,24 +133,24 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
   if (mediaItems.length === 1) media = mediaItems[0];
   else if (mediaItems.length > 1) media = mediaItems;
 
-  const normalizedAttachments = attachments
-    .map((attachment) => ({
-      url: attachment?.url ?? attachment?.data ?? null,
-      type:
-        attachment?.type ??
-        (attachment?.mimeType?.startsWith("image/")
-          ? "image"
-          : attachment?.mimeType?.startsWith("video/")
-            ? "video"
-            : attachment?.mimeType?.startsWith("audio/")
-              ? "audio"
-              : "file"),
-      name: attachment?.name ?? null,
-      size: attachment?.size ?? null,
-      mimeType: attachment?.mimeType ?? null,
-      preview: attachment?.preview ?? null,
-    }))
-    .filter((attachment) => attachment.url);
+  const normalizedAttachments = Array.isArray(message.attachments)
+    ? message.attachments.map((attachment) => {
+        const primarySrc =
+          attachment?.url ??
+          attachment?.path ??
+          attachment?.storagePath ??
+          attachment?.data ??
+          attachment?.preview ??
+          null;
+        const resolvedUrl = buildAssetUrl(primarySrc) ?? primarySrc;
+        const type = (attachment?.type ?? attachment?.mimeType ?? "file").toLowerCase();
+        return {
+          ...attachment,
+          url: resolvedUrl,
+          type,
+        };
+      })
+    : [];
 
   const reactions = Array.isArray(message.reactions)
     ? message.reactions
@@ -613,6 +633,7 @@ const Chat = () => {
       const timestamp = normalizedMessage?.createdAt ?? new Date().toISOString();
       let createdConversation = false;
       let conversationForCache = null;
+      let inserted = false;
 
       setRawConversations((previous) => {
         const existing = previous[conversationId];
@@ -686,6 +707,10 @@ const Chat = () => {
           updatedAt: lastTimestamp,
         };
 
+        inserted = messages.some(
+          (item) => String(item?.id ?? item?._id) === String(normalizedMessage.id),
+        );
+
         if (nextConversation.sidebar) {
           nextConversation.sidebar = {
             ...nextConversation.sidebar,
@@ -734,23 +759,16 @@ const Chat = () => {
         return nextState;
       });
 
-      const latestConversation = rawConversationsRef.current?.[conversationId];
-      const messagesAfterMerge = Array.isArray(latestConversation?.messages)
-        ? latestConversation.messages
-        : [];
-      const inserted = messagesAfterMerge.some(
-        (item) => String(item?.id ?? item?._id) === String(normalizedMessage.id),
-      );
-
       if (!inserted) {
         logDebug("mergeConversationMessage: failed to update state for", normalizedMessage.id);
         return false;
       }
 
-      if (conversationForCache) {
+      const latestConversation = rawConversationsRef.current?.[conversationId] ?? conversationForCache;
+      if (latestConversation) {
         setCacheItem(
-          CACHE_KEYS.conversation(conversationForCache.id ?? conversationId),
-          latestConversation ?? conversationForCache,
+          CACHE_KEYS.conversation(latestConversation.id ?? conversationId),
+          latestConversation,
           60 * 1000,
         );
       }

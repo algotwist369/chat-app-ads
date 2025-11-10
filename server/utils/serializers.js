@@ -1,3 +1,6 @@
+const path = require("path");
+const { buildPublicAssetUrl, UPLOAD_PUBLIC_PATH } = require("../config/storage");
+
 const toObjectId = (value) => (value && value.toString ? value.toString() : String(value));
 
 const serializeManager = (managerDoc) => {
@@ -84,15 +87,21 @@ const serializeReaction = (reactionDoc) => {
 
 const serializeAttachment = (attachmentDoc) => {
   if (!attachmentDoc) return null;
-  const url = attachmentDoc.url ?? attachmentDoc.data ?? null;
+  const storagePath = attachmentDoc.storagePath ?? null;
+  const relativeFromStorage = storagePath
+    ? `${UPLOAD_PUBLIC_PATH}/${path.basename(storagePath)}`.replace(/\\/g, "/")
+    : null;
+  const candidateUrl = attachmentDoc.url ?? attachmentDoc.data ?? relativeFromStorage;
+  const normalizedUrl = buildPublicAssetUrl(candidateUrl);
+
   return {
     type: attachmentDoc.type ?? "other",
     name: attachmentDoc.name ?? null,
     size: attachmentDoc.size ?? null,
     mimeType: attachmentDoc.mimeType ?? null,
-    url,
-    data: url,
-    preview: attachmentDoc.preview ?? null,
+    url: normalizedUrl,
+    data: normalizedUrl,
+    preview: attachmentDoc.preview ? buildPublicAssetUrl(attachmentDoc.preview) : null,
     metadata: attachmentDoc.metadata ?? {},
   };
 };

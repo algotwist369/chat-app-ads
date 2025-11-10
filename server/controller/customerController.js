@@ -1,4 +1,5 @@
 const { validationResult } = require("express-validator");
+require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const { Customer, Manager } = require("../models");
 const { serializeCustomer, serializeManager } = require("../utils/serializers");

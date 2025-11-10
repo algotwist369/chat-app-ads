@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+require("dotenv").config();
 const { Manager, Customer, Conversation, Message } = require("../models");
 const { toBusinessSlug } = require("../utils/slug");
 

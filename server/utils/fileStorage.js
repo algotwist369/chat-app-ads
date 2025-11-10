@@ -1,4 +1,5 @@
 const path = require("path");
+require("dotenv").config();
 const fsPromises = require("fs/promises");
 const { UPLOAD_DIR, UPLOAD_PUBLIC_PATH, determineAttachmentType } = require("../config/storage");
 

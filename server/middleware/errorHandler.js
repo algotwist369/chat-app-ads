@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars */
 const multer = require("multer");
+require("dotenv").config();
 
 const errorHandler = (err, req, res, next) => {
   const isMulterError = err instanceof multer.MulterError;

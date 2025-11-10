@@ -1,4 +1,5 @@
 const { validationResult } = require("express-validator");
+require("dotenv").config();
 const asyncHandler = require("../utils/asyncHandler");
 const {
   ensureConversation,

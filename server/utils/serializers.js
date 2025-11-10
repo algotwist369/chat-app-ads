@@ -1,4 +1,5 @@
 const path = require("path");
+require("dotenv").config();
 const { buildPublicAssetUrl, UPLOAD_PUBLIC_PATH } = require("../config/storage");
 
 const toObjectId = (value) => (value && value.toString ? value.toString() : String(value));

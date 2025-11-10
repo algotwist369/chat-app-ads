@@ -1,4 +1,5 @@
 const mongoose = require("mongoose");
+require("dotenv").config();
 const { Message } = require("../models");
 const {
   incrementUnreadForParticipant,

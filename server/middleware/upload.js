@@ -2,7 +2,7 @@ const multer = require("multer");
 const path = require("path");
 const crypto = require("crypto");
 const { UPLOAD_DIR } = require("../config/storage");
-
+require("dotenv").config();
 const MAX_FILE_SIZE_MB = parseInt(process.env.UPLOAD_MAX_FILE_MB ?? "10", 10);
 const MAX_FILES = parseInt(process.env.UPLOAD_MAX_FILES ?? "5", 10);
 

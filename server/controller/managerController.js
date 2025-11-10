@@ -1,3 +1,4 @@
+require("dotenv").config();
 const bcrypt = require("bcryptjs");
 const { validationResult } = require("express-validator");
 const { Manager } = require("../models");

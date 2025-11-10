@@ -1,4 +1,5 @@
 const { redisClient, isRedisReady } = require("./redisClient");
+require("dotenv").config();
 
 const DEFAULT_TTL = 60 * 1000; // 60 seconds
 

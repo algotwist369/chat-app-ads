@@ -1,7 +1,6 @@
 require("dotenv").config();
 
 const http = require("http");
-const path = require("path");
 const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
@@ -14,21 +13,26 @@ const messageRoutes = require("./routes/messageRoutes");
 const errorHandler = require("./middleware/errorHandler");
 const { initializeSocket } = require("./utils/socket");
 const { UPLOAD_DIR, UPLOAD_PUBLIC_PATH } = require("./config/storage");
+const { buildCorsOptions, resolveAllowedOrigins } = require("./config/cors");
 
 const PORT = process.env.PORT || 4000;
 
 const app = express();
 
-app.use(helmet());
-app.use(
-  cors({
-    origin: process.env.CLIENT_ORIGIN ?? "*",
-    credentials: true,
-  }),
-);
+const corsOptions = buildCorsOptions();
+const allowedOrigins = resolveAllowedOrigins();
+const socketOrigin = allowedOrigins.length > 0 ? allowedOrigins : "*";
+
+const helmetConfig = {
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  crossOriginEmbedderPolicy: false,
+};
+
+app.use(helmet(helmetConfig));
+app.use(cors(corsOptions));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-app.use(UPLOAD_PUBLIC_PATH, express.static(UPLOAD_DIR, { maxAge: "7d", index: false }));
+app.use(UPLOAD_PUBLIC_PATH, cors(corsOptions), express.static(UPLOAD_DIR, { maxAge: "7d", index: false }));
 
 if (process.env.NODE_ENV !== "test") {
   app.use(
@@ -58,7 +62,7 @@ app.use(errorHandler);
 const server = http.createServer(app);
 
 const io = initializeSocket(server, {
-  origin: process.env.CLIENT_ORIGIN ?? "*",
+  origin: socketOrigin,
 });
 app.set("io", io);
 

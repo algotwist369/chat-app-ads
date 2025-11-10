@@ -17,6 +17,18 @@ import { postMessage, patchMessage, removeMessage, postReaction } from "../lib/m
 import { buildCustomerInviteLink } from "../lib/invite";
 import { getSocket } from "../lib/socketClient";
 import { getCacheItem, setCacheItem, removeCacheItem, CACHE_KEYS } from "../lib/cache";
+import { resolveApiBaseUrl } from "../lib/apiClient";
+
+const API_BASE_URL = resolveApiBaseUrl();
+
+const buildAssetUrl = (value) => {
+  if (!value) return null;
+  if (typeof value !== "string") return null;
+  if (/^(?:https?:|blob:|data:)/i.test(value)) return value;
+  if (!API_BASE_URL) return value.startsWith("/") ? value : `/${value}`;
+  const normalizedPath = value.startsWith("/") ? value : `/${value}`;
+  return `${API_BASE_URL}${normalizedPath}`;
+};
 
 const formatTime = (timestamp) => {
   if (!timestamp) return "";
@@ -75,13 +87,21 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
   const attachments = Array.isArray(message.attachments) ? message.attachments : [];
   const mediaItems = attachments
     .map((attachment) => {
-      const src = attachment?.url ?? attachment?.data ?? attachment?.preview ?? null;
-      if (!src) return null;
+      const primarySrc =
+        attachment?.url ??
+        attachment?.path ??
+        attachment?.storagePath ??
+        attachment?.data ??
+        attachment?.preview ??
+        null;
+      const fallbackPreview = attachment?.preview ?? null;
+      const resolvedSrc = buildAssetUrl(primarySrc) ?? buildAssetUrl(fallbackPreview);
+      if (!resolvedSrc) return null;
       const type = (attachment.type ?? attachment?.mimeType ?? "file").toString().toLowerCase();
       if (type.startsWith("image") || type === "image") {
         return {
           type: "image",
-          src,
+          src: resolvedSrc,
           alt: attachment.name ?? "Shared image",
           name: attachment.name ?? undefined,
         };
@@ -89,20 +109,20 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
       if (type.startsWith("video") || type === "video") {
         return {
           type: "video",
-          src,
+          src: resolvedSrc,
           name: attachment.name ?? "Shared video",
         };
       }
       if (type.startsWith("audio") || type === "audio") {
         return {
           type: "audio",
-          src,
+          src: resolvedSrc,
           name: attachment.name ?? "Shared audio",
         };
       }
       return {
         type: "file",
-        src,
+        src: resolvedSrc,
         name: attachment.name ?? "Shared file",
         size: attachment.size ?? undefined,
       };
@@ -113,24 +133,24 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
   if (mediaItems.length === 1) media = mediaItems[0];
   else if (mediaItems.length > 1) media = mediaItems;
 
-  const normalizedAttachments = attachments
-    .map((attachment) => ({
-      url: attachment?.url ?? attachment?.data ?? null,
-      type:
-        attachment?.type ??
-        (attachment?.mimeType?.startsWith("image/")
-          ? "image"
-          : attachment?.mimeType?.startsWith("video/")
-            ? "video"
-            : attachment?.mimeType?.startsWith("audio/")
-              ? "audio"
-              : "file"),
-      name: attachment?.name ?? null,
-      size: attachment?.size ?? null,
-      mimeType: attachment?.mimeType ?? null,
-      preview: attachment?.preview ?? null,
-    }))
-    .filter((attachment) => attachment.url);
+  const normalizedAttachments = Array.isArray(message.attachments)
+    ? message.attachments.map((attachment) => {
+        const primarySrc =
+          attachment?.url ??
+          attachment?.path ??
+          attachment?.storagePath ??
+          attachment?.data ??
+          attachment?.preview ??
+          null;
+        const resolvedUrl = buildAssetUrl(primarySrc) ?? primarySrc;
+        const type = (attachment?.type ?? attachment?.mimeType ?? "file").toLowerCase();
+        return {
+          ...attachment,
+          url: resolvedUrl,
+          type,
+        };
+      })
+    : [];
 
   const reactions = Array.isArray(message.reactions)
     ? message.reactions
@@ -299,6 +319,7 @@ const Chat = () => {
   const [replyTarget, setReplyTarget] = React.useState(null);
   const [editingMessage, setEditingMessage] = React.useState(null);
   const [messageMenu, setMessageMenu] = React.useState(null);
+  const [deleteDialog, setDeleteDialog] = React.useState({ open: false, message: null });
   const [typingIndicators, setTypingIndicators] = React.useState({});
   const [transientError, setTransientError] = React.useState(null);
   const [loadingConversationId, setLoadingConversationId] = React.useState(null);
@@ -613,6 +634,7 @@ const Chat = () => {
       const timestamp = normalizedMessage?.createdAt ?? new Date().toISOString();
       let createdConversation = false;
       let conversationForCache = null;
+      let inserted = false;
 
       setRawConversations((previous) => {
         const existing = previous[conversationId];
@@ -686,6 +708,10 @@ const Chat = () => {
           updatedAt: lastTimestamp,
         };
 
+        inserted = messages.some(
+          (item) => String(item?.id ?? item?._id) === String(normalizedMessage.id),
+        );
+
         if (nextConversation.sidebar) {
           nextConversation.sidebar = {
             ...nextConversation.sidebar,
@@ -734,23 +760,16 @@ const Chat = () => {
         return nextState;
       });
 
-      const latestConversation = rawConversationsRef.current?.[conversationId];
-      const messagesAfterMerge = Array.isArray(latestConversation?.messages)
-        ? latestConversation.messages
-        : [];
-      const inserted = messagesAfterMerge.some(
-        (item) => String(item?.id ?? item?._id) === String(normalizedMessage.id),
-      );
-
       if (!inserted) {
         logDebug("mergeConversationMessage: failed to update state for", normalizedMessage.id);
         return false;
       }
 
-      if (conversationForCache) {
+      const latestConversation = rawConversationsRef.current?.[conversationId] ?? conversationForCache;
+      if (latestConversation) {
         setCacheItem(
-          CACHE_KEYS.conversation(conversationForCache.id ?? conversationId),
-          latestConversation ?? conversationForCache,
+          CACHE_KEYS.conversation(latestConversation.id ?? conversationId),
+          latestConversation,
           60 * 1000,
         );
       }
@@ -1347,53 +1366,71 @@ const Chat = () => {
   const handleDeleteMessageAction = React.useCallback(
     (message) => {
       if (!activeConversationId || !message?.id) return;
-      if (typeof window !== "undefined") {
-        const confirmed = window.confirm("Delete this message?");
-        if (!confirmed) return;
-      }
-      const performDelete = async () => {
-        try {
-          if (isSocketConnected() && socketRef.current) {
-            socketRef.current.emit("message:delete", { messageId: message.id });
-            removeConversationMessage(activeConversationId, message.id);
-          } else {
-            const response = await removeMessage(message.id);
-            const conversationId = response?.conversationId ?? activeConversationId;
-            const removed = removeConversationMessage(conversationId, message.id);
-            if (!removed) {
-              refreshConversation(conversationId, { force: true, showSkeleton: false });
-            }
+      setDeleteDialog({ open: true, message });
+    },
+    [activeConversationId],
+  );
+
+  const confirmDeleteMessage = React.useCallback(async () => {
+    const target = deleteDialog.message;
+    if (!target?.id || !activeConversationId) {
+      setDeleteDialog({ open: false, message: null });
+      return;
+    }
+
+    const message = target;
+    const performDelete = async () => {
+      try {
+        if (isSocketConnected() && socketRef.current) {
+          socketRef.current.emit("message:delete", { messageId: message.id });
+          removeConversationMessage(activeConversationId, message.id);
+        } else {
+          const response = await removeMessage(message.id);
+          const conversationId = response?.conversationId ?? activeConversationId;
+          const removed = removeConversationMessage(conversationId, message.id);
+          if (!removed) {
+            refreshConversation(conversationId, { force: true, showSkeleton: false });
           }
-          if (editingMessage?.id === message.id) {
-            setEditingMessage(null);
-            setDraftValue("");
-          }
-          if (replyTarget?.messageId === message.id) {
-            setReplyTarget(null);
-          }
-          setMessageMenu(null);
-        } catch (error) {
-          console.error("Failed to delete message", error);
-          showTransientError(
-            error?.response?.data?.message ??
+        }
+        if (editingMessage?.id === message.id) {
+          setEditingMessage(null);
+          setDraftValue("");
+        }
+        if (replyTarget?.messageId === message.id) {
+          setReplyTarget(null);
+        }
+        setMessageMenu(null);
+      } catch (error) {
+        console.error("Failed to delete message", error);
+        showTransientError(
+          error?.response?.data?.message ??
             error?.response?.data?.error ??
             "Unable to delete message right now.",
-          );
-        }
-      };
-      performDelete();
-    },
-    [
-      activeConversationId,
-      editingMessage,
-      isSocketConnected,
-      mergeConversationMessage,
-      refreshConversation,
-      replyTarget,
-      removeConversationMessage,
-      showTransientError,
-    ],
-  );
+        );
+      } finally {
+        setDeleteDialog({ open: false, message: null });
+      }
+    };
+
+    await performDelete();
+  }, [
+    activeConversationId,
+    deleteDialog.message,
+    editingMessage,
+    isSocketConnected,
+    refreshConversation,
+    removeConversationMessage,
+    replyTarget,
+    setDraftValue,
+    setEditingMessage,
+    setMessageMenu,
+    setReplyTarget,
+    showTransientError,
+  ]);
+
+  const cancelDeleteMessage = React.useCallback(() => {
+    setDeleteDialog({ open: false, message: null });
+  }, []);
 
   const handleReaction = React.useCallback(
     (message, emoji) => {
@@ -1785,6 +1822,38 @@ const Chat = () => {
       {transientError ? (
         <div className="fixed bottom-6 right-6 z-40 max-w-sm rounded-2xl border border-[#ff4d6d]/40 bg-[#40121f]/90 px-4 py-3 text-sm text-[#ffb3c1] shadow-lg shadow-black/40">
           {transientError}
+        </div>
+      ) : null}
+      {deleteDialog.open && deleteDialog.message ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 py-6" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/70" onClick={cancelDeleteMessage} />
+          <div className="relative z-10 w-full max-w-md rounded-3xl border border-[#1f2c34] bg-[#0b141a] p-6 shadow-2xl shadow-black/40">
+            <h2 className="text-lg font-semibold text-[#e9edef]">Delete message?</h2>
+            <p className="mt-2 text-sm text-[#8696a0]">
+              This message will be removed from the chat history for everyone.
+            </p>
+            {deleteDialog.message.content ? (
+              <div className="mt-4 rounded-2xl border border-[#1f2c34] bg-[#111b21] p-3 text-sm text-[#c2cbce]">
+                {deleteDialog.message.content}
+              </div>
+            ) : null}
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cancelDeleteMessage}
+                className="inline-flex items-center justify-center rounded-full border border-transparent bg-[#1f2c34] px-4 py-2 text-sm font-medium text-[#e9edef] transition-colors duration-150 hover:bg-[#23323c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteMessage}
+                className="inline-flex items-center justify-center rounded-full border border-transparent bg-[#ff4d6d] px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-[#ff4d6d]/30 transition-colors duration-150 hover:bg-[#ff3358] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#ff6b81]/60"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

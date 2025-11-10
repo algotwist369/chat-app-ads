@@ -7,7 +7,7 @@ import React, {
     useRef,
     useState,
 } from "react";
-import { FiPaperclip, FiCheck, FiPlay, FiPause, FiDownload } from "react-icons/fi";
+import { FiPaperclip, FiCheck, FiPlay, FiPause, FiDownload, FiMaximize2 } from "react-icons/fi";
 import { BiCheckDouble } from "react-icons/bi";
 import { IoInformationCircleOutline } from "react-icons/io5";
 import { cn } from "../common/utils";
@@ -127,38 +127,84 @@ const formatBytes = (bytes) => {
 
 const getMediaSource = (item) => item?.src ?? item?.url ?? item?.preview ?? item?.thumbnail ?? null;
 
-const renderImage = (item, key) => {
+const renderImage = (item, key, onOpen) => {
     const src = getMediaSource(item);
     if (!src) return null;
+    const handleOpen = () => onOpen?.({ ...item, src, type: "image" });
+    const downloadName = item.name ?? "image";
     return (
-        <figure key={key} className="overflow-hidden rounded-2xl">
-            <img
-                src={src}
-                alt={item.alt ?? item.name ?? "Shared image"}
-                className="h-auto max-h-64 w-full rounded-2xl object-cover"
-                loading="lazy"
-                decoding="async"
-            />
+        <figure key={key} className="flex flex-col gap-2">
+            <div className="group relative overflow-hidden rounded-2xl">
+                <button
+                    type="button"
+                    onClick={handleOpen}
+                    className="relative block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
+                >
+                    <img
+                        src={src}
+                        alt={item.alt ?? item.name ?? "Shared image"}
+                        className="h-auto max-h-64 w-full rounded-2xl object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                        loading="lazy"
+                        decoding="async"
+                    />
+                    {onOpen && (
+                        <span className="pointer-events-none absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#0b141a]/70 text-[#e9edef] opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
+                            <FiMaximize2 className="h-4 w-4" />
+                        </span>
+                    )}
+                </button>
+            </div>
+            <div className="flex items-center justify-end">
+                <a
+                    href={src}
+                    download={downloadName}
+                    className="inline-flex items-center gap-1 text-[0.7rem] font-medium uppercase tracking-wide text-[#25d366] transition-colors duration-150 hover:text-[#1dd460]"
+                >
+                    <FiDownload className="h-3.5 w-3.5" />
+                    Download
+                </a>
+            </div>
         </figure>
     );
 };
 
-const renderVideo = (item, key) => {
+const renderVideo = (item, key, onOpen) => {
     const src = getMediaSource(item);
     if (!src) return null;
+    const handleOpen = () => onOpen?.({ ...item, src, type: "video" });
+    const downloadName = item.name ?? "video";
     return (
         <div key={key} className="flex flex-col gap-2 rounded-2xl bg-[#111b21]/60 p-2">
-            <video src={src} controls className="max-h-64 w-full rounded-2xl bg-black object-contain" preload="metadata">
-                Your browser does not support the video tag.
-            </video>
-            <a
-                href={src}
-                download={item.name ?? "video"}
-                className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-[#25d366] hover:text-[#1dd460]"
-            >
-                <FiPaperclip className="h-4 w-4" />
-                Download video
-            </a>
+            <div className="group relative overflow-hidden rounded-2xl">
+                <video
+                    src={src}
+                    controls
+                    className="max-h-64 w-full rounded-2xl bg-black object-contain"
+                    preload="metadata"
+                >
+                    Your browser does not support the video tag.
+                </video>
+                {onOpen && (
+                    <button
+                        type="button"
+                        onClick={handleOpen}
+                        className="absolute right-3 top-3 inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#0b141a]/80 text-[#e9edef] opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
+                        aria-label="Expand video"
+                    >
+                        <FiMaximize2 className="h-4 w-4" />
+                    </button>
+                )}
+            </div>
+            <div className="flex items-center justify-end">
+                <a
+                    href={src}
+                    download={downloadName}
+                    className="inline-flex items-center gap-1 text-[0.7rem] font-medium uppercase tracking-wide text-[#25d366] transition-colors duration-150 hover:text-[#1dd460]"
+                >
+                    <FiDownload className="h-3.5 w-3.5" />
+                    Download
+                </a>
+            </div>
         </div>
     );
 };
@@ -301,7 +347,7 @@ const mediaRenderer = {
     file: renderFile,
 };
 
-const renderMediaItem = (item, index) => {
+const renderMediaItem = (item, index, onOpen) => {
     if (!item) return null;
     const key = item.id ?? item.src ?? item.url ?? `media-${index}`;
 
@@ -325,10 +371,10 @@ const renderMediaItem = (item, index) => {
 
     const renderer = mediaRenderer[inferType()];
     if (!renderer) return null;
-    return renderer(item, key);
+    return renderer(item, key, onOpen);
 };
 
-const MediaPreview = memo(function MediaPreview({ media }) {
+const MediaPreview = memo(function MediaPreview({ media, onOpenMedia }) {
     const items = useMemo(() => {
         if (!media) return [];
         return (Array.isArray(media) ? media : [media]).filter(Boolean);
@@ -336,7 +382,7 @@ const MediaPreview = memo(function MediaPreview({ media }) {
 
     if (items.length === 0) return null;
 
-    return <div className="flex flex-col gap-3">{items.map(renderMediaItem)}</div>;
+    return <div className="flex flex-col gap-3">{items.map((item, index) => renderMediaItem(item, index, onOpenMedia))}</div>;
 });
 
 MediaPreview.displayName = "MediaPreview";
@@ -386,7 +432,7 @@ const ReplyPreview = memo(function ReplyPreview({ reply, isOwn }) {
 
 ReplyPreview.displayName = "ReplyPreview";
 
-export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn, onContext, onReact }, ref) {
+export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn, onContext, onReact, onMediaOpen }, ref) {
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const [showTouchActions, setShowTouchActions] = useState(false);
     const pickerRef = useRef(null);
@@ -563,7 +609,7 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
 
             <ReplyPreview reply={message.replyTo} isOwn={isOwn} />
 
-            <MediaPreview media={message.media} />
+            <MediaPreview media={message.media?.length ? message.media : message.attachments} onOpenMedia={onMediaOpen} />
 
             {message.content ? (
                 <div className="flex items-end gap-2">

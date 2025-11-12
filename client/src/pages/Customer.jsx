@@ -148,7 +148,7 @@ const CustomerLogin = () => {
                 : "Enter your details to join the conversation."
             }
           >
-            {businessName ? `${businessName} - Customer Login` : "Customer Login"}
+            {businessName ? `Your private space to chat.` : "Customer Login"}
           </Heading>
 
           {workspaceState.loading ? (
@@ -211,7 +211,6 @@ const CustomerLogin = () => {
                 autoComplete="tel"
               />
             </div>
-            <p className="text-xs text-[#667781]">We&apos;ll use your number to notify you about responses.</p>
           </div>
 
           {error ? (
@@ -223,22 +222,14 @@ const CustomerLogin = () => {
             </p>
           ) : null}
 
-          <Button type="submit" loading={loading} fullWidth className="h-12 text-base">
-            Join Chat
+          <Button type="submit" loading={loading} fullWidth className="h-12 text-base font-semibold">
+            Start Chat
           </Button>
 
           <div className="flex flex-col items-center gap-2 text-center text-sm text-[#8696a0]">
             <p>
-              Are you a manager?{" "}
-              <Link to="/manager/login" className="font-medium text-[#25d366] transition hover:text-[#20c65a]">
-                Sign in here
-              </Link>
+              🔒Start chating with 100% privacy and security. 
             </p>
-            {businessName ? (
-              <p className="text-xs text-[#667781]">
-                You&apos;re joining the workspace for <span className="font-medium text-[#c2cbce]">{businessName}</span>.
-              </p>
-            ) : null}
           </div>
         </form>
       </div>

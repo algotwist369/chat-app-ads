@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:analyze": "vite build && open dist/stats.html",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "preview:prod": "vite preview --mode production"
   },
   "dependencies": {
     "axios": "^1.13.2",
@@ -15,12 +17,15 @@
     "react-dom": "^19.1.1",
     "react-icons": "^5.5.0",
     "react-router-dom": "^7.9.5",
-    "socket.io-client": "^4.8.1"
+    "react-window": "^1.8.10",
+    "socket.io-client": "^4.8.1",
+    "workbox-window": "^7.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.36.0",
     "@types/react": "^19.1.16",
     "@types/react-dom": "^19.1.9",
+    "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
     "eslint": "^9.36.0",
@@ -28,7 +33,9 @@
     "eslint-plugin-react-refresh": "^0.4.22",
     "globals": "^16.4.0",
     "postcss": "^8.5.6",
+    "rollup-plugin-visualizer": "^5.12.0",
     "tailwindcss": "^3.4.18",
-    "vite": "^7.1.7"
+    "vite": "^7.1.7",
+    "vite-plugin-compression": "^0.5.1"
   }
 }

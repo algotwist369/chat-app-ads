@@ -14,6 +14,7 @@ const systemBubble = {
 };
 
 const MESSAGE_MAX_LENGTH = Number(import.meta.env?.VITE_MESSAGE_MAX_LENGTH ?? "2000");
+const MESSAGE_SCROLL_STYLES = { scrollbarGutter: "stable both-edges" };
 
 const formatByteSize = (bytes) => {
   if (!Number.isFinite(bytes)) return null;
@@ -123,7 +124,7 @@ const ChatSkeleton = () => (
   </div>
 );
 
-const ChatWindow = ({
+const ChatWindowComponent = ({
   messages = [],
   systemMessage = systemBubble,
   conversationTitle,
@@ -148,11 +149,43 @@ const ChatWindow = ({
   typingParticipants = [],
   className,
   isLoading = false,
+  managerPhone,
+  customerPhone,
+  currentUserType,
 }) => {
   const containerRef = React.useRef(null);
   const [searchTerm, setSearchTerm] = React.useState("");
   const messageCountRef = React.useRef(0);
   const [previewMedia, setPreviewMedia] = React.useState(null);
+  const [prefersReducedMotion, setPrefersReducedMotion] = React.useState(false);
+
+  React.useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return undefined;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = (event) => {
+      setPrefersReducedMotion(event.matches ?? media.matches);
+    };
+    updatePreference(media);
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", updatePreference);
+      return () => media.removeEventListener("change", updatePreference);
+    }
+    if (typeof media.addListener === "function") {
+      media.addListener(updatePreference);
+      return () => {
+        if (typeof media.removeListener === "function") {
+          media.removeListener(updatePreference);
+        }
+      };
+    }
+    return undefined;
+  }, []);
+
+  const deferredSearch = React.useDeferredValue(searchTerm);
+  const normalizedSearch = React.useMemo(
+    () => deferredSearch.trim().toLowerCase(),
+    [deferredSearch],
+  );
 
   const handleOpenMedia = React.useCallback((media) => {
     if (!media) return;
@@ -165,6 +198,10 @@ const ChatWindow = ({
 
   const handleCloseMedia = React.useCallback(() => {
     setPreviewMedia(null);
+  }, []);
+
+  const handleSearchChange = React.useCallback((value) => {
+    setSearchTerm(value);
   }, []);
 
   const primaryParticipant = React.useMemo(() => {
@@ -184,11 +221,36 @@ const ChatWindow = ({
     return participants[0];
   }, [participants, currentUserId]);
 
+  const scrollToBottom = React.useCallback(
+    ({ smooth = true } = {}) => {
+      const node = containerRef.current;
+      if (!node) return;
+      const behavior = smooth && !prefersReducedMotion ? "smooth" : "auto";
+      requestAnimationFrame(() => {
+        node.scrollTo({
+          top: node.scrollHeight,
+          behavior,
+        });
+      });
+    },
+    [prefersReducedMotion],
+  );
+
+  const scrollToTop = React.useCallback(() => {
+    const node = containerRef.current;
+    if (!node) return;
+    requestAnimationFrame(() => {
+      node.scrollTo({
+        top: 0,
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      });
+    });
+  }, [prefersReducedMotion]);
+
   React.useEffect(() => {
     const node = containerRef.current;
     if (!node) return;
-    const trimmedSearch = searchTerm.trim();
-    if (trimmedSearch) {
+    if (normalizedSearch) {
       messageCountRef.current = messages.length;
       return;
     }
@@ -199,36 +261,47 @@ const ChatWindow = ({
     const hasNewMessages = currentCount > previousCount;
 
     if (isInitialRender || hasNewMessages) {
-      node.scrollTo({
-        top: node.scrollHeight,
-        behavior: isInitialRender ? "auto" : "smooth",
-      });
+      scrollToBottom({ smooth: !isInitialRender });
     }
 
     messageCountRef.current = currentCount;
-  }, [messages, searchTerm]);
+  }, [messages, normalizedSearch, scrollToBottom]);
 
   React.useEffect(() => {
-    if (!searchTerm.trim()) return;
+    if (!normalizedSearch) return;
     const node = containerRef.current;
     if (!node) return;
-    node.scrollTo({ top: 0, behavior: "smooth" });
-  }, [searchTerm]);
+    scrollToTop();
+  }, [normalizedSearch, scrollToTop]);
 
-  const hasMessages = Array.isArray(messages) && messages.length > 0;
-  const normalizedSearch = searchTerm.trim().toLowerCase();
-  const visibleMessages =
-    normalizedSearch && hasMessages
-      ? messages.filter((message) =>
-          message.content.toLowerCase().includes(normalizedSearch),
-        )
-      : messages;
-  const showingMessages = Array.isArray(visibleMessages) ? visibleMessages : [];
+  const showingMessages = React.useMemo(() => {
+    if (!Array.isArray(messages) || messages.length === 0) return [];
+    if (!normalizedSearch) return messages;
+    return messages.filter((message) => {
+      const content = (message?.content ?? "").toLowerCase();
+      return content.includes(normalizedSearch);
+    });
+  }, [messages, normalizedSearch]);
+
   const showingHasMessages = showingMessages.length > 0;
   const isSearching = Boolean(normalizedSearch);
+  const shouldRenderSystemMessage = !isSearching && systemMessage && !isLoading;
+  const typingLabel = React.useMemo(() => typingParticipants.join(", "), [typingParticipants]);
+  const showTypingIndicator = Boolean(typingLabel);
+  const inputPaddingStyle = React.useMemo(
+    () => ({
+      paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+    }),
+    [],
+  );
 
   return (
-    <section className={cn("flex h-full w-full flex-col bg-[#111b21]", className)}>
+    <section
+      className={cn(
+        "relative grid h-full min-h-[100svh] w-full grid-rows-[auto,1fr,auto] overflow-hidden bg-[#111b21]",
+        className,
+      )}
+    >
       <ChatHeader
         participant={primaryParticipant}
         conversationTitle={conversationTitle}
@@ -239,15 +312,19 @@ const ChatWindow = ({
         onCall={onCall}
         onVideo={onVideo}
         onMore={onMore}
-        onSearch={setSearchTerm}
+        onSearch={handleSearchChange}
+        managerPhone={managerPhone}
+        customerPhone={customerPhone}
+        currentUserType={currentUserType}
       />
 
-      <div className="flex-1 overflow-hidden">
+      <div className="relative overflow-hidden">
         <div
           ref={containerRef}
-          className="flex h-full flex-col gap-6 overflow-y-auto bg-[url('https://cdn.pixabay.com/photo/2021/09/09/20/47/candles-6611567_1280.jpg')] bg-cover bg-center px-3 py-4 sm:px-6 sm:py-6"
+          className="flex h-full flex-col gap-6 overflow-y-auto bg-[url('https://cdn.pixabay.com/photo/2021/09/09/20/47/candles-6611567_1280.jpg')] bg-cover bg-center px-3 pt-4 pb-28 sm:px-6 sm:pt-6 sm:pb-6"
+          style={MESSAGE_SCROLL_STYLES}
         >
-          {!isSearching && systemMessage && !isLoading && <SystemBubble message={systemMessage} />}
+          {shouldRenderSystemMessage && <SystemBubble message={systemMessage} />}
           {isLoading ? (
             <ChatSkeleton />
           ) : showingHasMessages ? (
@@ -291,14 +368,14 @@ const ChatWindow = ({
       </div>
 
       <div
-        className="border-t border-[#1f2c34] bg-[#111b21]/90 px-2 pt-2 pb-4 sm:px-4 sm:pt-3 sm:pb-6"
-        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+        className="sticky bottom-0 z-30 border-t border-[#1f2c34] bg-[#111b21]/90 px-2 pt-2 pb-4 sm:static sm:z-auto sm:px-4 sm:pt-3 sm:pb-6"
+        style={inputPaddingStyle}
       >
-        {typingParticipants.length > 0 && (
+        {showTypingIndicator && (
           <div className="mb-2 inline-flex max-w-[90%] items-center gap-2 rounded-full bg-[#1f2c34]/80 px-3 py-1 text-xs text-[#c2cbce] sm:max-w-[70%] sm:text-sm">
             <span className="h-2 w-2 rounded-full bg-[#25d366]" />
             <span className="max-w-full truncate">
-              {typingParticipants.join(", ")} {typingParticipants.length === 1 ? "is" : "are"} typing…
+              {typingLabel} {typingParticipants.length === 1 ? "is" : "are"} typing…
             </span>
           </div>
         )}
@@ -322,4 +399,6 @@ const ChatWindow = ({
   );
 };
 
-export default ChatWindow;
+ChatWindowComponent.displayName = "ChatWindow";
+
+export default React.memo(ChatWindowComponent);

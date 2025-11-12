@@ -1,16 +1,33 @@
-# React + Vite
+# Client Application
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Prerequisites
+- Node.js 20.x LTS
+- npm 10.x
 
-Currently, two official plugins are available:
+## Environment
+Copy `env.sample` to `.env` and adjust for your environment:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+cp env.sample .env
+```
 
-## React Compiler
+| Variable | Description | Example |
+| --- | --- | --- |
+| `VITE_API_BASE_URL` | Base URL for REST API requests | `https://28c.d0s369.co.in` |
+| `VITE_SOCKET_BASE_URL` | Socket.IO endpoint (defaults to `VITE_API_BASE_URL`) | `https://28c.d0s369.co.in` |
+| `VITE_SOCKET_TRANSPORTS` | Optional comma separated transport list | `websocket,polling` |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+At runtime you can also inject `window.__API_BASE_URL__` or `window.__SOCKET_BASE_URL__` before the bundle script if your hosting requires dynamic configuration.
 
-## Expanding the ESLint configuration
+## Local development
+```bash
+npm install
+npm run dev
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Production build
+```bash
+npm run build
+```
+
+The build output will be generated inside `dist/`. Deploy the contents of this folder to your static hosting provider. Ensure HTTPS is enabled so that cookies and secure transports work correctly.

@@ -45,7 +45,6 @@ const buildAvatar = (seed) =>
 
 const logDebug = (...args) => {
   if (import.meta.env?.DEV) {
-    // eslint-disable-next-line no-console
     console.log("[Chat]", ...args);
   }
 };
@@ -427,14 +426,7 @@ const Chat = () => {
     }
   }, []);
 
-  const sessionsMemo = sessions ?? {};
-
-  const availableRoles = React.useMemo(() => {
-    const roles = [];
-    if (sessionsMemo.manager) roles.push("manager");
-    if (sessionsMemo.customer) roles.push("customer");
-    return roles;
-  }, [sessionsMemo.manager, sessionsMemo.customer]);
+  const sessionsMemo = React.useMemo(() => sessions ?? {}, [sessions]);
 
   const effectiveRole = React.useMemo(() => {
     if (requestedRole && sessionsMemo[requestedRole]) {
@@ -1153,6 +1145,8 @@ const Chat = () => {
     userType,
     isManager,
     isCustomer,
+    mergeConversationMessage,
+    removeConversationMessage,
     refreshConversation,
     conversations,
     activeConversation,
@@ -1703,6 +1697,9 @@ const Chat = () => {
             }
             typingParticipants={typingParticipants}
             isLoading={isConversationLoading}
+            managerPhone={activeConversation.manager?.mobileNumber}
+            customerPhone={activeConversation.customer?.phone}
+            currentUserType={userType}
           />
         ) : (
           <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 bg-[#111b21] text-center text-[#8696a0]">

@@ -6,7 +6,7 @@ import { REACTION_OPTIONS } from "../common/reactions";
 
 const MAX_ATTACHMENTS = Number(import.meta.env.VITE_MESSAGE_MAX_ATTACHMENTS ?? "5");
 
-const ChatInput = React.forwardRef(
+const ChatInputComponent = React.forwardRef(
   (
     {
       value,
@@ -60,11 +60,26 @@ const ChatInput = React.forwardRef(
     const shouldSaveRecordingRef = React.useRef(true);
 
     const [isRecording, setIsRecording] = React.useState(false);
-  const [recordingDuration, setRecordingDuration] = React.useState(0);
+    const [recordingDuration, setRecordingDuration] = React.useState(0);
     const [recordingError, setRecordingError] = React.useState(null);
     const [recordingSupported, setRecordingSupported] = React.useState(true);
 
     const currentValue = isControlled ? value : internalValue;
+    const trimmedValue = React.useMemo(() => currentValue.trim(), [currentValue]);
+    const canSend = React.useMemo(
+      () => trimmedValue.length > 0 || attachments.length > 0,
+      [attachments.length, trimmedValue],
+    );
+    const isEditing = React.useMemo(() => mode === "edit", [mode]);
+    const hasReply = React.useMemo(() => Boolean(replyingTo), [replyingTo]);
+    const replyPreview = React.useMemo(() => {
+      if (!replyingTo) return null;
+      return (
+        replyingTo.preview ??
+        replyingTo.content ??
+        (replyingTo.hasMedia ? "Attachment" : null)
+      );
+    }, [replyingTo]);
 
     React.useEffect(() => {
       if (autoFocus) {
@@ -635,12 +650,6 @@ const ChatInput = React.forwardRef(
       onEmojiClick?.({ type: "emoji", value: symbol });
     };
 
-    const trimmedValue = currentValue.trim();
-    const canSend = trimmedValue.length > 0 || attachments.length > 0;
-    const isEditing = mode === "edit";
-    const hasReply = Boolean(replyingTo);
-    const replyPreview = replyingTo?.preview ?? replyingTo?.content ?? (replyingTo?.hasMedia ? "Attachment" : null);
-
     return (
       <form
         ref={formRef}
@@ -1054,6 +1063,6 @@ const ChatInput = React.forwardRef(
   },
 );
 
-ChatInput.displayName = "ChatInput";
+ChatInputComponent.displayName = "ChatInput";
 
-export default ChatInput;
+export default React.memo(ChatInputComponent);

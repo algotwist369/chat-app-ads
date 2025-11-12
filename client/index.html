@@ -2,12 +2,79 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>--------RAMA---------</title>
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="description" content="Real-time chat application for managers and customers" />
+    <meta name="theme-color" content="#25d366" />
+    
+    <!-- Preconnect to external domains for faster DNS resolution -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Apple Touch Icons (optional - create icons later) -->
+    <!-- <link rel="apple-touch-icon" href="/icon-192.png" /> -->
+    
+    <!-- Preload critical resources -->
+    <!-- Note: Vite handles CSS injection automatically, no need to preload -->
+    
+    <!-- Security headers -->
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    
+    <!-- Performance hints -->
+    <meta http-equiv="x-dns-prefetch-control" content="on" />
+    
+    <title>AD Chat App</title>
+    
+    <!-- Critical CSS inline (if needed) -->
+    <style>
+      /* Prevent FOUC (Flash of Unstyled Content) */
+      body {
+        margin: 0;
+        background-color: #0b141a;
+        color: #e9edef;
+      }
+      #root {
+        min-height: 100vh;
+      }
+      /* Loading spinner styles */
+      .page-loader {
+        display: flex;
+        height: 100vh;
+        align-items: center;
+        justify-content: center;
+        background-color: #0b141a;
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Fallback content for no-JS users -->
+      <noscript>
+        <div style="padding: 2rem; text-align: center;">
+          <h1>JavaScript Required</h1>
+          <p>Please enable JavaScript to use this application.</p>
+        </div>
+      </noscript>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
+    
+    <!-- Service Worker Registration (only in production) -->
+    <script>
+      if ('serviceWorker' in navigator && import.meta.env.PROD) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('SW registered: ', registration);
+            })
+            .catch((registrationError) => {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+    </script>
   </body>
 </html>

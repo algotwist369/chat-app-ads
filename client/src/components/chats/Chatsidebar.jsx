@@ -33,83 +33,87 @@ const getInitials = (name) => {
   return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
 };
 
-const ChatItem = ({
+const ChatItem = React.memo(function ChatItem({
   chat,
   active,
   onSelect,
   onContext,
   layout = "comfortable",
   showAvatarImage = false,
-}) => (
-  <button
-    type="button"
-    onClick={() => onSelect?.(chat)}
-    onContextMenu={(event) => {
-      event.preventDefault();
-      onContext?.(chat);
-    }}
-    className={cn(
-      "group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-200 hover:bg-[#23323c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:rounded-3xl sm:px-4 sm:py-3",
-      active ? "bg-[#1f2c34] shadow-inner shadow-black/30" : "bg-transparent",
-    )}
-  >
-    <span className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1f2c34] to-[#162026] text-base font-semibold uppercase tracking-wide text-[#e9edef] sm:h-12 sm:w-12">
-      {showAvatarImage && chat.avatar ? (
-        <img src={chat.avatar} alt={chat.name} className="h-full w-full rounded-full object-cover" />
-      ) : (
-        getInitials(chat.name)
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(chat)}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        onContext?.(chat);
+      }}
+      className={cn(
+        "group relative flex w-full items-center gap-3 rounded-2xl px-3 py-2 text-left transition-all duration-200 hover:bg-[#23323c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:rounded-3xl sm:px-4 sm:py-3",
+        active ? "bg-[#1f2c34] shadow-inner shadow-black/30" : "bg-transparent",
       )}
-      {Number(chat.unreadCount) > 0 && (
-        <span className="absolute -right-1 -top-1 inline-flex min-w-[18px] max-h-[18px] items-center justify-center rounded-full bg-[#25d366] px-1 text-[0.65rem] font-semibold text-[#06100d] shadow-md shadow-[#25d366]/40">
-          {Number(chat.unreadCount) > 99 ? "99+" : Number(chat.unreadCount)}
-        </span>
-      )}
-    </span>
-
-    <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <div className="flex items-center gap-1.5">
-            <span className="truncate text-sm font-semibold text-[#e9edef] sm:text-[0.95rem]">
-              {chat.name}
-            </span>
-            {chat.badge?.type === "verified" && (
-              <MdVerified className="h-4 w-4 text-[#25d366]" title={chat.badge.label ?? "Verified"} />
-            )}
-          </div>
-          <div className="flex items-center gap-2 text-[0.68rem] text-[#8696a0] sm:text-xs">
-            <span
-              aria-hidden
-              className={cn(
-                "h-2 w-2 rounded-full",
-                presenceDotMap[chat.status] ?? presenceDotMap.offline,
-              )}
-            />
-            <span className="truncate">
-              {chat.meta ?? formatPresenceLabel(chat.status)}
-            </span>
-          </div>
-        </div>
-        <span className="shrink-0 text-[0.68rem] text-[#667781] sm:text-xs">
-          {chat.lastActive}
-        </span>
-      </div>
-      <p
-        className={cn(
-          "line-clamp-1 text-[0.74rem] text-[#8696a0] transition-colors duration-200 sm:text-sm",
-          chat.unreadCount > 0 && "font-semibold text-[#e9edef]",
-          layout === "compact" && "text-[0.7rem]",
+    >
+      <span className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1f2c34] to-[#162026] text-base font-semibold uppercase tracking-wide text-[#e9edef] sm:h-12 sm:w-12">
+        {showAvatarImage && chat.avatar ? (
+          <img src={chat.avatar} alt={chat.name} className="h-full w-full rounded-full object-cover" />
+        ) : (
+          getInitials(chat.name)
         )}
-      >
-        {chat.lastMessage}
-      </p>
-    </div>
+        {Number(chat.unreadCount) > 0 && (
+          <span className="absolute -right-1 -top-1 inline-flex min-w-[18px] max-h-[18px] items-center justify-center rounded-full bg-[#25d366] px-1 text-[0.65rem] font-semibold text-[#06100d] shadow-md shadow-[#25d366]/40">
+            {Number(chat.unreadCount) > 99 ? "99+" : Number(chat.unreadCount)}
+          </span>
+        )}
+      </span>
 
-    <span className="absolute right-3 top-3 hidden text-[#54656f] transition group-hover:text-[#25d366] sm:inline-flex">
-      {/* <FiMoreVertical className="h-4 w-4" /> */}
-    </span>
-  </button>
-);
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-col gap-0.5">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-semibold text-[#e9edef] sm:text-[0.95rem]">
+                {chat.name}
+              </span>
+              {chat.badge?.type === "verified" && (
+                <MdVerified className="h-4 w-4 text-[#25d366]" title={chat.badge.label ?? "Verified"} />
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-[0.68rem] text-[#8696a0] sm:text-xs">
+              <span
+                aria-hidden
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  presenceDotMap[chat.status] ?? presenceDotMap.offline,
+                )}
+              />
+              <span className="truncate">
+                {chat.meta ?? formatPresenceLabel(chat.status)}
+              </span>
+            </div>
+          </div>
+          <span className="shrink-0 text-[0.68rem] text-[#667781] sm:text-xs">
+            {chat.lastActive}
+          </span>
+        </div>
+        <p
+          className={cn(
+            "line-clamp-1 text-[0.74rem] text-[#8696a0] transition-colors duration-200 sm:text-sm",
+            chat.unreadCount > 0 && "font-semibold text-[#e9edef]",
+            layout === "compact" && "text-[0.7rem]",
+          )}
+        >
+          {chat.lastMessage}
+        </p>
+      </div>
+
+      <span className="absolute right-3 top-3 hidden text-[#54656f] transition group-hover:text-[#25d366] sm:inline-flex">
+        {/* <FiMoreVertical className="h-4 w-4" /> */}
+      </span>
+    </button>
+  );
+});
+
+ChatItem.displayName = "ChatSidebarItem";
 
 const ChatSidebar = ({
   chats = [],
@@ -130,11 +134,32 @@ const ChatSidebar = ({
   const [activeTab, setActiveTab] = React.useState("all");
   const [query, setQuery] = React.useState("");
   const [contextChat, setContextChat] = React.useState(null);
-  const [isFilterOpen, setIsFilterOpen] = React.useState(false);
   const [isSearchExpanded, setIsSearchExpanded] = React.useState(false);
 
   const isMobile = useBreakpoint("sm");
   const isManagerAccount = currentUserType === "manager";
+
+  const tabBadgeCounts = React.useMemo(() => {
+    const counts = {
+      unread: 0,
+      pinned: 0,
+      muted: 0,
+      online: 0,
+      offline: 0,
+      busy: 0,
+      silent: 0,
+    };
+    chats.forEach((chat) => {
+      if (Number(chat.unreadCount) > 0) counts.unread += 1;
+      if (chat.pinned) counts.pinned += 1;
+      if (chat.muted) counts.muted += 1;
+      const status = (chat.status ?? "").toLowerCase();
+      if (counts[status] !== undefined) {
+        counts[status] += 1;
+      }
+    });
+    return counts;
+  }, [chats]);
 
   const renderManagerProfile = React.useCallback(() => {
     if (!isManagerAccount || !currentUser) return null;
@@ -216,23 +241,22 @@ const ChatSidebar = ({
 
   const groupEntries = Object.entries(groupedChats);
 
-  const handleTabClick = (tabId) => {
+  const handleTabClick = React.useCallback((tabId) => {
     setActiveTab(tabId);
     onTabChange?.(tabId);
-  };
+  }, [onTabChange]);
 
-  const handleSearch = (event) => {
+  const handleSearch = React.useCallback((event) => {
     const value = event.target.value;
     setQuery(value);
     onSearchChange?.(value);
-  };
+  }, [onSearchChange]);
 
   const isEmpty = groupEntries.length === 0;
 
   React.useEffect(() => {
     if (!isMobile) {
       setIsSearchExpanded(false);
-      setIsFilterOpen(false);
     }
   }, [isMobile]);
 
@@ -303,26 +327,9 @@ const ChatSidebar = ({
             )}
           >
             {tab.label}
-            {tab.id === "unread" && (
+            {tabBadgeCounts[tab.id] > 0 && (
               <span className="ml-2 inline-flex h-5 min-w-[22px] items-center justify-center rounded-full bg-[#0b141a]/80 px-1.5 text-xs text-[#25d366]">
-                {chats.filter((item) => Number(item.unreadCount) > 0).length}
-              </span>
-            )}
-            {tab.id === "pinned" && (
-              <span className="ml-2 inline-flex h-5 min-w-[22px] items-center justify-center rounded-full bg-[#0b141a]/80 px-1.5 text-xs text-[#25d366]">
-                {chats.filter((item) => item.pinned).length}
-              </span>
-            )}
-            {tab.id === "muted" && (
-              <span className="ml-2 inline-flex h-5 min-w-[22px] items-center justify-center rounded-full bg-[#0b141a]/80 px-1.5 text-xs text-[#25d366]">
-                {chats.filter((item) => item.muted).length}
-              </span>
-            )}
-            {['online', 'offline', 'busy', 'silent'].includes(tab.id) && (
-              <span className="ml-2 inline-flex h-5 min-w-[22px] items-center justify-center rounded-full bg-[#0b141a]/80 px-1.5 text-xs text-[#25d366]">
-                {chats.filter(
-                  (item) => (item.status ?? "").toLowerCase() === tab.id,
-                ).length}
+                {tabBadgeCounts[tab.id]}
               </span>
             )}
           </button>
@@ -456,5 +463,5 @@ const ChatSidebar = ({
   );
 };
 
-export default ChatSidebar;
+export default React.memo(ChatSidebar);
 

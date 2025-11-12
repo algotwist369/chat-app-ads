@@ -8,8 +8,6 @@ const { signToken } = require("../utils/tokens");
 const {
   findManagerByBusinessSlug,
   ensureConversation,
-  ensureManagerExists,
-  ensureCustomerExists,
   getCustomerConversation,
 } = require("../services/conversationService");
 
@@ -59,11 +57,42 @@ const customerJoin = asyncHandler(async (req, res) => {
     });
   }
 
-  await ensureConversation(manager._id, customer._id, {
+  const conversation = await ensureConversation(manager._id, customer._id, {
     managerName: manager.managerName ?? manager.businessName ?? "Manager",
     customerName: customer.name ?? "Customer",
     customerPhone: customer.phone ?? null,
   });
+
+  // Emit socket event for real-time sidebar update
+  const io = req.app.get("io");
+  if (io && conversation) {
+    const { serializeConversation } = require("../utils/serializers");
+    const { getConversationById } = require("../services/conversationService");
+    const { Message } = require("../models");
+    
+    try {
+      const fullConversation = await getConversationById(conversation._id);
+      const messages = await Message.find(
+        { conversation: conversation._id },
+        {
+          "attachments.metadata": 0,
+          "attachments.storagePath": 0,
+        }
+      )
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean();
+      messages.reverse(); // Reverse to get chronological order
+      const serialized = serializeConversation(fullConversation, messages);
+      
+      // Emit to manager for real-time sidebar update
+      io.to(`manager:${manager._id.toString()}`).emit("conversation:new", serialized);
+      io.to(`manager:${manager._id.toString()}`).emit("conversation:updated", serialized);
+    } catch (error) {
+      // Log but don't fail the request if socket emission fails
+      console.error("Failed to emit conversation:new event", error);
+    }
+  }
 
   const token = signToken({
     sub: customer._id.toString(),

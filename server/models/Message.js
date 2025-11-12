@@ -197,8 +197,15 @@ const MessageSchema = new Schema(
   },
 );
 
+// Compound index for efficient conversation message queries (most common query pattern)
 MessageSchema.index({ conversation: 1, createdAt: 1 });
+// Index for author-based queries
 MessageSchema.index({ author: 1 });
+// Index for delivery state queries (used in markConversationRead/Delivered)
+MessageSchema.index({ conversation: 1, "deliveryState.manager.status": 1 });
+MessageSchema.index({ conversation: 1, "deliveryState.customer.status": 1 });
+// Index for reactions lookup
+MessageSchema.index({ "reactions.emoji": 1 });
 
 module.exports = mongoose.models.Message || mongoose.model("Message", MessageSchema);
 

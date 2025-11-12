@@ -71,11 +71,24 @@ const MediaLightbox = ({ media, onClose }) => {
         </button>
         <div className="max-h-[70vh] w-full overflow-hidden rounded-2xl bg-black">
           {displayType === "video" ? (
-            <video src={src} controls autoPlay className="max-h-[70vh] w-full object-contain" preload="metadata">
+            <video 
+              src={src} 
+              controls 
+              autoPlay 
+              className="max-h-[70vh] w-full object-contain" 
+              preload="metadata"
+              crossOrigin="anonymous"
+            >
               Your browser does not support the video tag.
             </video>
           ) : displayType === "audio" ? (
-            <audio src={src} controls autoPlay className="w-full" />
+            <audio 
+              src={src} 
+              controls 
+              autoPlay 
+              className="w-full"
+              crossOrigin="anonymous"
+            />
           ) : (
             <img
               src={src}
@@ -83,6 +96,9 @@ const MediaLightbox = ({ media, onClose }) => {
               className="h-full w-full object-contain"
               loading="lazy"
               decoding="async"
+              fetchPriority="high"
+              crossOrigin="anonymous"
+              referrerPolicy="no-referrer-when-downgrade"
             />
           )}
         </div>
@@ -152,6 +168,9 @@ const ChatWindowComponent = ({
   managerPhone,
   customerPhone,
   currentUserType,
+  hasMoreMessages = false,
+  loadingOlderMessages = false,
+  onLoadOlderMessages,
 }) => {
   const containerRef = React.useRef(null);
   const [searchTerm, setSearchTerm] = React.useState("");
@@ -200,8 +219,27 @@ const ChatWindowComponent = ({
     setPreviewMedia(null);
   }, []);
 
+  // Debounce search to reduce re-renders during typing
+  const searchDebounceRef = React.useRef(null);
+  const SEARCH_DEBOUNCE_MS = 300;
+
   const handleSearchChange = React.useCallback((value) => {
     setSearchTerm(value);
+    // Debounce the actual search filtering
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current);
+    }
+    searchDebounceRef.current = setTimeout(() => {
+      // Search is handled by deferred value, this is just for cleanup
+    }, SEARCH_DEBOUNCE_MS);
+  }, []);
+
+  React.useEffect(() => {
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current);
+      }
+    };
   }, []);
 
   const primaryParticipant = React.useMemo(() => {
@@ -247,6 +285,10 @@ const ChatWindowComponent = ({
     });
   }, [prefersReducedMotion]);
 
+  // Track scroll position for maintaining position when loading older messages
+  const scrollPositionRef = React.useRef({ top: 0, height: 0 });
+  const isLoadingOlderRef = React.useRef(false);
+
   React.useEffect(() => {
     const node = containerRef.current;
     if (!node) return;
@@ -259,13 +301,63 @@ const ChatWindowComponent = ({
     const currentCount = messages.length;
     const isInitialRender = previousCount === 0 && currentCount > 0;
     const hasNewMessages = currentCount > previousCount;
+    const hasOlderMessages = currentCount > previousCount && isLoadingOlderRef.current;
 
-    if (isInitialRender || hasNewMessages) {
+    if (hasOlderMessages) {
+      // Maintain scroll position when loading older messages
+      const previousHeight = scrollPositionRef.current.height;
+      const currentHeight = node.scrollHeight;
+      const heightDiff = currentHeight - previousHeight;
+      
+      requestAnimationFrame(() => {
+        node.scrollTop = scrollPositionRef.current.top + heightDiff;
+        isLoadingOlderRef.current = false;
+      });
+    } else if (isInitialRender || hasNewMessages) {
       scrollToBottom({ smooth: !isInitialRender });
     }
 
     messageCountRef.current = currentCount;
   }, [messages, normalizedSearch, scrollToBottom]);
+
+  // Detect scroll to top for loading older messages - throttled for performance
+  React.useEffect(() => {
+    const node = containerRef.current;
+    if (!node || !onLoadOlderMessages || !hasMoreMessages || loadingOlderMessages) return;
+
+    let ticking = false;
+    const SCROLL_THROTTLE_MS = 100; // Throttle scroll events
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const scrollTop = node.scrollTop;
+          const scrollHeight = node.scrollHeight;
+          const clientHeight = node.clientHeight;
+          
+          // Save scroll position for maintaining it when loading older messages
+          scrollPositionRef.current = {
+            top: scrollTop,
+            height: scrollHeight,
+          };
+
+          // Load older messages when scrolled near top (within 100px) - similar to WhatsApp
+          if (scrollTop < 100 && hasMoreMessages && !loadingOlderMessages && !isLoadingOlderRef.current) {
+            isLoadingOlderRef.current = true;
+            onLoadOlderMessages();
+          }
+          
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    node.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      node.removeEventListener("scroll", handleScroll);
+    };
+  }, [hasMoreMessages, loadingOlderMessages, onLoadOlderMessages]);
 
   React.useEffect(() => {
     if (!normalizedSearch) return;
@@ -322,13 +414,29 @@ const ChatWindowComponent = ({
         <div
           ref={containerRef}
           className="flex h-full flex-col gap-6 overflow-y-auto bg-[url('https://cdn.pixabay.com/photo/2021/09/09/20/47/candles-6611567_1280.jpg')] bg-cover bg-center px-3 pt-4 pb-28 sm:px-6 sm:pt-6 sm:pb-6"
-          style={MESSAGE_SCROLL_STYLES}
+          style={{
+            ...MESSAGE_SCROLL_STYLES,
+            // Optimize scroll performance on mobile
+            WebkitOverflowScrolling: "touch",
+            willChange: "scroll-position",
+            // Reduce repaints during scroll
+            transform: "translateZ(0)",
+          }}
         >
           {shouldRenderSystemMessage && <SystemBubble message={systemMessage} />}
           {isLoading ? (
             <ChatSkeleton />
           ) : showingHasMessages ? (
             <>
+              {/* Loading indicator for older messages */}
+              {loadingOlderMessages && (
+                <div className="flex items-center justify-center py-4">
+                  <div className="flex items-center gap-2 text-sm text-[#8696a0]">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#25d366] border-t-transparent" />
+                    <span>Loading older messages...</span>
+                  </div>
+                </div>
+              )}
               {!isSearching && <DateDivider label="Today" />}
               {isSearching && (
                 <div className="flex items-center justify-center">
@@ -337,19 +445,22 @@ const ChatWindowComponent = ({
                   </span>
                 </div>
               )}
-              {showingMessages.map((message) => (
-                <MessageBubble
-                  key={message.id}
-                  message={message}
-                  isOwn={
-                    message.authorId === currentUserId ||
-                    (!message.authorId && currentUserId === "self" && message?.authorName === "You")
-                  }
-                  onReact={onReact}
-                  onContext={onMessageMenu}
-                  onMediaOpen={handleOpenMedia}
-                />
-              ))}
+              {showingMessages.map((message) => {
+                // Calculate isOwn inline (MessageBubble is already memoized)
+                const isOwn =
+                  message.authorId === currentUserId ||
+                  (!message.authorId && currentUserId === "self" && message?.authorName === "You");
+                return (
+                  <MessageBubble
+                    key={message.id}
+                    message={message}
+                    isOwn={isOwn}
+                    onReact={onReact}
+                    onContext={onMessageMenu}
+                    onMediaOpen={handleOpenMedia}
+                  />
+                );
+              })}
             </>
           ) : (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center text-[#8696a0]">

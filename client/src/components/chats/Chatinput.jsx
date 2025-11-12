@@ -923,6 +923,8 @@ const ChatInputComponent = React.forwardRef(
                         src={attachment.preview ?? attachment.url ?? ""}
                         alt={attachment.name ?? "Selected image"}
                         className="h-full w-full object-cover"
+                        crossOrigin="anonymous"
+                        referrerPolicy="no-referrer-when-downgrade"
                       />
                       <button
                         type="button"

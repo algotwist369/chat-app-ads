@@ -125,30 +125,115 @@ const formatBytes = (bytes) => {
     return `${fixed} ${units[unitIndex]}`;
 };
 
-const getMediaSource = (item) => item?.src ?? item?.url ?? item?.preview ?? item?.thumbnail ?? null;
+const getMediaSource = (item) => {
+  if (!item) return null;
+  // Check all possible URL fields in order of preference
+  return item?.src ?? item?.url ?? item?.data ?? item?.preview ?? item?.thumbnail ?? null;
+};
 
-const renderImage = (item, key, onOpen) => {
+const ImageAttachment = memo(function ImageAttachment({ item, onOpen, attachmentKey }) {
     const src = getMediaSource(item);
-    if (!src) return null;
+    const [imageError, setImageError] = useState(false);
+    const [imageLoaded, setImageLoaded] = useState(false);
+    const [retryWithoutCors, setRetryWithoutCors] = useState(false);
+    
+    // Debug: Log the item to see what we're working with
+    useEffect(() => {
+        if (!src && item) {
+            console.warn("ImageAttachment: No source found for item:", {
+                item,
+                src,
+                url: item?.url,
+                data: item?.data,
+                preview: item?.preview,
+                name: item?.name
+            });
+        }
+    }, [src, item]);
+    
+    if (!src) {
+        // If no source, show filename as fallback with download link
+        const fileName = item?.name ?? "Image";
+        // Try to construct URL from name if we have a base URL
+        const possibleUrl = item?.url || item?.data || null;
+        return (
+            <div className="flex flex-col gap-2 rounded-2xl border border-[#1f2c34] bg-[#0b141a]/70 px-4 py-3">
+                <span className="text-sm font-medium text-[#8696a0]">{fileName}</span>
+                {possibleUrl ? (
+                    <a
+                        href={possibleUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-[#25d366] hover:underline"
+                    >
+                        Open image
+                    </a>
+                ) : (
+                    <span className="text-xs text-[#667781]">Image source not available</span>
+                )}
+            </div>
+        );
+    }
+    
     const handleOpen = () => onOpen?.({ ...item, src, type: "image" });
     const downloadName = item.name ?? "image";
+    
+    // Handle image load error - try without crossOrigin if it fails
+    const handleImageError = () => {
+        if (!retryWithoutCors) {
+            console.warn("Image failed to load with CORS, retrying without crossOrigin:", src);
+            setRetryWithoutCors(true);
+            setImageError(false); // Reset to try again
+        } else {
+            console.error("Image completely failed to load:", src);
+            setImageError(true);
+        }
+    };
+    
     return (
-        <figure key={key} className="flex flex-col gap-2">
+        <figure className="flex flex-col gap-2">
             <div className="group relative overflow-hidden rounded-2xl">
                 <button
                     type="button"
                     onClick={handleOpen}
                     className="relative block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
                 >
-                    <img
-                        src={src}
-                        alt={item.alt ?? item.name ?? "Shared image"}
-                        className="h-auto max-h-64 w-full rounded-2xl object-cover transition-transform duration-200 group-hover:scale-[1.02]"
-                        loading="lazy"
-                        decoding="async"
-                    />
-                    {onOpen && (
-                        <span className="pointer-events-none absolute right-3 top-3 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#0b141a]/70 text-[#e9edef] opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
+                    {!imageLoaded && !imageError && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b141a]/50">
+                            <div className="h-6 w-6 animate-spin rounded-full border-2 border-[#25d366] border-t-transparent" />
+                        </div>
+                    )}
+                    {imageError ? (
+                        <div className="flex h-64 flex-col items-center justify-center gap-2 rounded-2xl bg-[#0b141a]/70 px-4 py-3">
+                            <span className="text-sm font-medium text-[#8696a0]">{downloadName}</span>
+                            <a
+                                href={src}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs text-[#25d366] hover:underline"
+                            >
+                                Open image in new tab
+                            </a>
+                        </div>
+                    ) : (
+                        <img
+                            key={retryWithoutCors ? "no-cors" : "cors"}
+                            src={src}
+                            alt={item.alt ?? item.name ?? "Shared image"}
+                            className="h-auto max-h-64 w-full rounded-2xl object-cover transition-transform duration-200 group-hover:scale-[1.02]"
+                            loading="lazy"
+                            decoding="async"
+                            fetchPriority="low"
+                            {...(retryWithoutCors ? {} : { 
+                                crossOrigin: "anonymous",
+                                referrerPolicy: "no-referrer-when-downgrade"
+                            })}
+                            onError={handleImageError}
+                            onLoad={() => setImageLoaded(true)}
+                        />
+                    )}
+                    {onOpen && !imageError && (
+                        <span className="pointer-events-none absolute right-3 top-3 z-20 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#0b141a]/70 text-[#e9edef] opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100">
                             <FiMaximize2 className="h-4 w-4" />
                         </span>
                     )}
@@ -166,6 +251,12 @@ const renderImage = (item, key, onOpen) => {
             </div>
         </figure>
     );
+});
+
+ImageAttachment.displayName = "ImageAttachment";
+
+const renderImage = (item, key, onOpen) => {
+    return <ImageAttachment key={key} item={item} onOpen={onOpen} attachmentKey={key} />;
 };
 
 const renderVideo = (item, key, onOpen) => {
@@ -181,6 +272,7 @@ const renderVideo = (item, key, onOpen) => {
                     controls
                     className="max-h-64 w-full rounded-2xl bg-black object-contain"
                     preload="metadata"
+                    crossOrigin="anonymous"
                 >
                     Your browser does not support the video tag.
                 </video>
@@ -295,7 +387,14 @@ const AudioAttachment = memo(function AudioAttachment({ item, attachmentKey }) {
                 </a>
             </div>
             <div className="flex w-full flex-col gap-2 sm:flex-1">
-                <audio ref={audioRef} src={item.src} controls preload="metadata" className="w-full" />
+                <audio
+                    ref={audioRef}
+                    src={item.src}
+                    controls
+                    preload="metadata"
+                    className="w-full"
+                    crossOrigin="anonymous"
+                />
                 <span className="max-w-full truncate text-sm font-medium text-[#e9edef] sm:text-base">
                     {item.name ?? "Audio file"}
                 </span>
@@ -439,7 +538,28 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
     const isTouchRef = useRef(false);
     const touchActionsTimeoutRef = useRef(null);
 
-    const statusMeta = useMemo(() => getStatusMeta(message?.status), [message?.status]);
+    // Get status based on perspective: for own messages, show recipient's status (delivered/read)
+    // For other's messages, show sender's status (usually "read" since they sent it)
+    const messageStatus = useMemo(() => {
+        if (!message) return "sent";
+        if (isOwn) {
+            // For own messages, show the status from recipient's perspective
+            // If message.authorType is "manager", show customer's status, and vice versa
+            const authorType = message.authorType;
+            if (authorType === "manager" && message.statusByParticipant?.customer) {
+                return message.statusByParticipant.customer;
+            }
+            if (authorType === "customer" && message.statusByParticipant?.manager) {
+                return message.statusByParticipant.manager;
+            }
+            // Fallback to base status
+            return message.status ?? "sent";
+        }
+        // For other's messages, they've already seen it (status is "read" for sender)
+        return message.status ?? "sent";
+    }, [message, isOwn]);
+
+    const statusMeta = useMemo(() => getStatusMeta(messageStatus), [messageStatus]);
     const hasMeta =
         Boolean(message?.time) || Boolean(message?.isEdited) || Boolean(isOwn && statusMeta?.Icon);
 

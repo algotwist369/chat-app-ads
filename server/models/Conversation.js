@@ -95,11 +95,19 @@ const ConversationSchema = new Schema(
   },
 );
 
+// Unique compound index for manager-customer pairs
 ConversationSchema.index({ manager: 1, customer: 1 }, { unique: true });
+// Compound index for efficient manager conversation list queries (sorted by updatedAt)
 ConversationSchema.index({ manager: 1, updatedAt: -1 });
+// Index for status filtering
 ConversationSchema.index({ status: 1 });
+// Indexes for mute state queries
 ConversationSchema.index({ mutedForManager: 1 });
 ConversationSchema.index({ mutedForCustomer: 1 });
+// Compound index for customer conversation lookup
+ConversationSchema.index({ customer: 1, updatedAt: -1 });
+// Index for lastMessageAt queries (used in sorting)
+ConversationSchema.index({ lastMessageAt: -1 });
 
 module.exports =
   mongoose.models.Conversation || mongoose.model("Conversation", ConversationSchema);

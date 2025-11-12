@@ -56,7 +56,16 @@ const ChatItem = React.memo(function ChatItem({
     >
       <span className="relative inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1f2c34] to-[#162026] text-base font-semibold uppercase tracking-wide text-[#e9edef] sm:h-12 sm:w-12">
         {showAvatarImage && chat.avatar ? (
-          <img src={chat.avatar} alt={chat.name} className="h-full w-full rounded-full object-cover" />
+          <img 
+            src={chat.avatar} 
+            alt={chat.name} 
+            className="h-full w-full rounded-full object-cover" 
+            loading="lazy"
+            decoding="async"
+            fetchPriority="low"
+            crossOrigin="anonymous"
+            referrerPolicy="no-referrer-when-downgrade"
+          />
         ) : (
           getInitials(chat.name)
         )}
@@ -130,6 +139,9 @@ const ChatSidebar = ({
   onSettings = () => {},
   onLogout = () => {},
   onToggleMute = () => {},
+  hasMoreConversations = false,
+  loadingMoreConversations = false,
+  onLoadMoreConversations = () => {},
 }) => {
   const [activeTab, setActiveTab] = React.useState("all");
   const [query, setQuery] = React.useState("");
@@ -173,7 +185,15 @@ const ChatSidebar = ({
       <div className="flex items-center gap-3 rounded-3xl border border-[#1f2c34] bg-[#0f1a21]/85 px-3 py-3 shadow-inner shadow-black/30 sm:px-4">
         <span className="relative inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#1f2c34] to-[#162026] text-lg font-semibold uppercase tracking-wide text-[#e9edef] sm:h-14 sm:w-14">
           {logo ? (
-            <img src={logo} alt={profileName} className="h-full w-full rounded-full object-cover" />
+            <img 
+              src={logo} 
+              alt={profileName} 
+              className="h-full w-full rounded-full object-cover" 
+              loading="lazy"
+              decoding="async"
+              crossOrigin="anonymous"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
           ) : (
             initials
           )}
@@ -336,7 +356,26 @@ const ChatSidebar = ({
         ))}
       </div>
 
-      <div className="flex-1 overflow-y-auto pr-1">
+      <div 
+        className="flex-1 overflow-y-auto pr-1"
+        onScroll={(e) => {
+          // Infinite scroll: load more when near bottom
+          const element = e.target;
+          const scrollTop = element.scrollTop;
+          const scrollHeight = element.scrollHeight;
+          const clientHeight = element.clientHeight;
+          
+          // Load more when within 200px of bottom
+          if (
+            scrollHeight - scrollTop - clientHeight < 200 &&
+            hasMoreConversations &&
+            !loadingMoreConversations &&
+            currentUserType === "manager"
+          ) {
+            onLoadMoreConversations();
+          }
+        }}
+      >
         {isEmpty ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[#8696a0]">
             <span className="text-4xl">💬</span>
@@ -345,32 +384,43 @@ const ChatSidebar = ({
             </p>
           </div>
         ) : (
-          groupEntries.map(([group, groupChats]) => (
-            <section key={group} className="flex flex-col gap-2 py-2">
-              <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-[#54656f]">
-                {group}
-              </h3>
-              <div className="flex flex-col gap-1.5">
-                {groupChats.map((chat) => (
-                  <ChatItem
-                    key={chat.id}
-                    chat={chat}
-                    layout={isMobile ? "compact" : "comfortable"}
-                    active={chat.id === activeChatId}
-                    onSelect={(selected) => {
-                      onChatSelect?.(selected);
-                      setContextChat(null);
-                      if (isMobile) {
-                        onClose?.();
-                      }
-                    }}
-                    onContext={setContextChat}
-                    showAvatarImage={currentUserType === "customer"}
-                  />
-                ))}
+          <>
+            {groupEntries.map(([group, groupChats]) => (
+              <section key={group} className="flex flex-col gap-2 py-2">
+                <h3 className="px-1 text-xs font-semibold uppercase tracking-wide text-[#54656f]">
+                  {group}
+                </h3>
+                <div className="flex flex-col gap-1.5">
+                  {groupChats.map((chat) => (
+                    <ChatItem
+                      key={chat.id}
+                      chat={chat}
+                      layout={isMobile ? "compact" : "comfortable"}
+                      active={chat.id === activeChatId}
+                      onSelect={(selected) => {
+                        onChatSelect?.(selected);
+                        setContextChat(null);
+                        if (isMobile) {
+                          onClose?.();
+                        }
+                      }}
+                      onContext={setContextChat}
+                      showAvatarImage={currentUserType === "customer"}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+            {/* Loading indicator for more conversations */}
+            {loadingMoreConversations && (
+              <div className="flex items-center justify-center py-4">
+                <div className="flex items-center gap-2 text-sm text-[#8696a0]">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#25d366] border-t-transparent" />
+                  <span>Loading more conversations...</span>
+                </div>
               </div>
-            </section>
-          ))
+            )}
+          </>
         )}
       </div>
 
@@ -414,6 +464,8 @@ const ChatSidebar = ({
                       src={contextChat.avatar}
                       alt={contextChat.name}
                       className="h-full w-full rounded-full object-cover"
+                      crossOrigin="anonymous"
+                      referrerPolicy="no-referrer-when-downgrade"
                     />
                   ) : (
                     getInitials(contextChat.name)

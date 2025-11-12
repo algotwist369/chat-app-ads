@@ -9,6 +9,7 @@ import {
   fetchManagerConversations,
   fetchCustomerConversation,
   fetchConversationById,
+  fetchOlderMessages,
   markConversationDelivered,
   markConversationRead,
   setConversationMute,
@@ -322,6 +323,10 @@ const Chat = () => {
   const [typingIndicators, setTypingIndicators] = React.useState({});
   const [transientError, setTransientError] = React.useState(null);
   const [loadingConversationId, setLoadingConversationId] = React.useState(null);
+  const [loadingOlderMessages, setLoadingOlderMessages] = React.useState(false);
+  const [loadingMoreConversations, setLoadingMoreConversations] = React.useState(false);
+  const [hasMoreConversations, setHasMoreConversations] = React.useState(false);
+  const [conversationsSkip, setConversationsSkip] = React.useState(0);
   const rawConversationsRef = React.useRef(rawConversations);
 
   React.useEffect(() => {
@@ -462,12 +467,22 @@ const Chat = () => {
     setSidebarOpen(!isMobile);
   }, [isMobile]);
 
+  // Request deduplication - prevent multiple simultaneous requests for same conversation
+  const pendingRequestsRef = React.useRef(new Map());
+
   const refreshConversation = React.useCallback(
     async (conversationId, options = {}) => {
       if (!conversationId) return;
       const { force = false } = options;
       const showSkeleton = options.showSkeleton ?? !force;
       const conversationCacheKey = CACHE_KEYS.conversation(conversationId);
+      
+      // Check for pending request - deduplicate
+      if (pendingRequestsRef.current.has(conversationId)) {
+        logDebug("refreshConversation: deduplicating request", conversationId);
+        return pendingRequestsRef.current.get(conversationId);
+      }
+
       if (!force) {
         const cachedConversation = getCacheItem(conversationCacheKey);
         if (cachedConversation?.id) {
@@ -480,16 +495,22 @@ const Chat = () => {
             rawConversationsRef.current = nextState;
             return nextState;
           });
+          // Still return a promise for consistency
+          return Promise.resolve(cachedConversation);
         }
       }
 
       if (showSkeleton) {
         setLoadingConversationId(conversationId);
       }
-      try {
-        logDebug("refreshConversation: fetching", conversationId, "force", force);
-        const { conversation } = await fetchConversationById(conversationId);
-        if (!conversation) return;
+      
+      // Create request promise and track it
+      const requestPromise = (async () => {
+        try {
+          logDebug("refreshConversation: fetching", conversationId, "force", force);
+          // Load only last 50 messages initially for better performance
+          const { conversation } = await fetchConversationById(conversationId, { limit: 50 });
+          if (!conversation) return;
 
         let mergedConversationRecord = conversation;
         setRawConversations((previous) => {
@@ -529,6 +550,7 @@ const Chat = () => {
             ...existing,
             ...conversation,
             messages: mergedMessages,
+            hasMoreMessages: conversation.hasMoreMessages ?? existing.hasMoreMessages ?? false,
           };
 
           mergedConversationRecord = mergedConversation;
@@ -551,33 +573,46 @@ const Chat = () => {
           return nextState;
         });
 
-        setCacheItem(conversationCacheKey, mergedConversationRecord, 60 * 1000);
+          setCacheItem(conversationCacheKey, mergedConversationRecord, 60 * 1000);
 
-        if (userType && user?.id) {
-          const listKey = CACHE_KEYS.conversationList(userType, user.id);
-          const cachedList = getCacheItem(listKey);
-          if (Array.isArray(cachedList)) {
-            const updated = [
-              mergedConversationRecord,
-              ...cachedList.filter((item) => item?.id && item.id !== conversation.id),
-            ];
-            setCacheItem(listKey, updated, 60 * 1000);
+          if (userType && user?.id) {
+            const listKey = CACHE_KEYS.conversationList(userType, user.id);
+            const cachedList = getCacheItem(listKey);
+            if (Array.isArray(cachedList)) {
+              const updated = [
+                mergedConversationRecord,
+                ...cachedList.filter((item) => item?.id && item.id !== conversation.id),
+              ];
+              setCacheItem(listKey, updated, 60 * 1000);
+            }
           }
+
+          return mergedConversationRecord;
+        } catch (error) {
+          console.error("Failed to refresh conversation", conversationId, error);
+          setFetchError(error?.message ?? "Failed to load conversation");
+          return null;
+        } finally {
+          setLoadingConversationId(null);
+          // Remove from pending requests
+          pendingRequestsRef.current.delete(conversationId);
         }
-      } catch (error) {
-        console.error("Failed to refresh conversation", error);
-        showTransientError("Unable to refresh conversation.");
-      } finally {
-        if (showSkeleton) {
-          setLoadingConversationId((current) => (current === conversationId ? null : current));
-        }
-      }
+      })();
+
+      // Track the request
+      pendingRequestsRef.current.set(conversationId, requestPromise);
+      
+      // Clean up on completion
+      requestPromise.finally(() => {
+        // Small delay to allow other components to use the same promise
+        setTimeout(() => {
+          pendingRequestsRef.current.delete(conversationId);
+        }, 100);
+      });
+
+      return requestPromise;
     },
-    [
-      userType,
-      user?.id,
-      showTransientError,
-    ],
+    [userType, user?.id, showTransientError],
   );
 
   const buildSnippetFromMessage = React.useCallback((message) => {
@@ -854,52 +889,87 @@ const Chat = () => {
     [buildSnippetFromMessage],
   );
 
-  const fetchConversations = React.useCallback(async () => {
+  const fetchConversations = React.useCallback(async (options = {}) => {
     if (!user || !userType) {
       setRawConversations({});
       return;
     }
 
+    const { append = false, skip = 0 } = options;
     const listCacheKey = CACHE_KEYS.conversationList(userType, user.id);
-    const cachedList = getCacheItem(listCacheKey);
-    if (Array.isArray(cachedList) && cachedList.length) {
-      const mappedFromCache = {};
-      cachedList.forEach((conversation) => {
-        if (conversation?.id) {
-          mappedFromCache[conversation.id] = conversation;
+    
+    // Only use cache for initial load (not when appending)
+    if (!append) {
+      const cachedList = getCacheItem(listCacheKey);
+      if (Array.isArray(cachedList) && cachedList.length) {
+        const mappedFromCache = {};
+        cachedList.forEach((conversation) => {
+          if (conversation?.id) {
+            mappedFromCache[conversation.id] = conversation;
+          }
+        });
+        setRawConversations((previous) => ({
+          ...mappedFromCache,
+          ...previous,
+        }));
+        if (!activeChatId) {
+          setActiveChatId(cachedList[0].id);
         }
-      });
-      setRawConversations((previous) => ({
-        ...mappedFromCache,
-        ...previous,
-      }));
-      if (!activeChatId) {
-        setActiveChatId(cachedList[0].id);
       }
     }
 
-    setLoadingConversations(true);
+    if (append) {
+      setLoadingMoreConversations(true);
+    } else {
+      setLoadingConversations(true);
+    }
     setFetchError(null);
     try {
       let conversations = [];
+      let hasMore = false;
+      
       if (isManager) {
-        const response = await fetchManagerConversations(user.id);
+        const response = await fetchManagerConversations(user.id, { limit: 20, skip });
         conversations = response.conversations ?? [];
+        hasMore = response.hasMore ?? false;
+        setHasMoreConversations(hasMore);
+        setConversationsSkip(skip + conversations.length);
       } else if (isCustomer) {
-        const response = await fetchCustomerConversation(user.id);
+        const response = await fetchCustomerConversation(user.id, { limit: 50 });
         if (response?.conversation) conversations = [response.conversation];
+        setHasMoreConversations(false);
       }
-      const mapped = {};
-      conversations.forEach((conversation) => {
-        if (conversation?.id) {
-          mapped[conversation.id] = conversation;
+      
+      if (append) {
+        // Append new conversations to existing ones
+        setRawConversations((previous) => {
+          const merged = { ...previous };
+          conversations.forEach((conversation) => {
+            if (conversation?.id) {
+              merged[conversation.id] = conversation;
+            }
+          });
+          return merged;
+        });
+      } else {
+        // Replace all conversations
+        const mapped = {};
+        conversations.forEach((conversation) => {
+          if (conversation?.id) {
+            mapped[conversation.id] = conversation;
+          }
+        });
+        setRawConversations(mapped);
+        setConversationsSkip(conversations.length);
+        if (!activeChatId && conversations.length) {
+          setActiveChatId(conversations[0].id);
         }
-      });
-      setRawConversations(mapped);
-      if (!activeChatId && conversations.length) {
-        setActiveChatId(conversations[0].id);
       }
-      setCacheItem(listCacheKey, conversations, 60 * 1000);
+      
+      // Cache only the first page
+      if (!append) {
+        setCacheItem(listCacheKey, conversations, 60 * 1000);
+      }
       conversations.forEach((conversation) => {
         if (conversation?.id) {
           setCacheItem(CACHE_KEYS.conversation(conversation.id), conversation, 60 * 1000);
@@ -912,11 +982,17 @@ const Chat = () => {
         error?.message ??
         "Unable to load conversations.";
       setFetchError(message);
-      setRawConversations({});
-      removeCacheItem(listCacheKey);
+      if (!append) {
+        setRawConversations({});
+        removeCacheItem(listCacheKey);
+      }
       showTransientError(message);
     } finally {
-      setLoadingConversations(false);
+      if (append) {
+        setLoadingMoreConversations(false);
+      } else {
+        setLoadingConversations(false);
+      }
     }
   }, [
     user,
@@ -976,16 +1052,30 @@ const Chat = () => {
 
     const handleConversationUpdated = (payload) => {
       if (payload?.id) {
-        setRawConversations((previous) => ({
-          ...previous,
-          [payload.id]: {
-            ...(previous[payload.id] ?? {}),
+        const isNewConversation = !rawConversationsRef.current?.[payload.id];
+        
+        setRawConversations((previous) => {
+          const existing = previous[payload.id];
+          const updated = {
+            ...(existing ?? {}),
             ...payload,
-            messages: payload.messages ?? previous[payload.id]?.messages ?? [],
-          },
-        }));
+            messages: payload.messages ?? existing?.messages ?? [],
+          };
+          
+          // New conversations automatically appear at top due to sorting by updatedAt
+          return {
+            ...previous,
+            [payload.id]: updated,
+          };
+        });
+        
         setCacheItem(CACHE_KEYS.conversation(payload.id), payload, 60 * 1000);
-        if (userType && user?.id) {
+        
+        // If new conversation, invalidate list cache to ensure it appears
+        if (isNewConversation && userType && user?.id) {
+          const listKey = CACHE_KEYS.conversationList(userType, user.id);
+          removeCacheItem(listKey);
+        } else if (userType && user?.id) {
           const listKey = CACHE_KEYS.conversationList(userType, user.id);
           const cachedList = getCacheItem(listKey);
           if (Array.isArray(cachedList)) {
@@ -1065,7 +1155,46 @@ const Chat = () => {
 
     const handleConversationDelivery = ({ conversationId }) => {
       if (!conversationId) return;
+      // Refresh to get updated statuses, but use silent refresh to avoid flicker
       refreshConversation(conversationId, { force: true, showSkeleton: false });
+    };
+
+    // Handle real-time message status updates (delivered/read)
+    const handleMessageStatusUpdate = ({ messageId, conversationId, status, message: updatedMessage }) => {
+      if (!messageId || !conversationId) return;
+      
+      const conversation = rawConversationsRef.current?.[conversationId];
+      if (!conversation) return;
+      
+      const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+      const messageIndex = messages.findIndex((msg) => msg?.id === messageId || msg?._id === messageId);
+      
+      if (messageIndex >= 0 && updatedMessage) {
+        setRawConversations((previous) => {
+          const existing = previous[conversationId];
+          if (!existing) return previous;
+          
+          const updatedMessages = [...(existing.messages ?? [])];
+          const currentMessage = updatedMessages[messageIndex];
+          
+          // Update message status while preserving other properties
+          updatedMessages[messageIndex] = {
+            ...currentMessage,
+            ...updatedMessage,
+            // Preserve existing properties that might not be in updatedMessage
+            id: currentMessage?.id ?? updatedMessage.id,
+            conversationId: currentMessage?.conversationId ?? updatedMessage.conversationId,
+          };
+          
+          return {
+            ...previous,
+            [conversationId]: {
+              ...existing,
+              messages: updatedMessages,
+            },
+          };
+        });
+      }
     };
 
     const handleConversationMuted = ({ conversation }) => {
@@ -1120,10 +1249,12 @@ const Chat = () => {
     };
 
     socket.on("conversation:updated", handleConversationUpdated);
+    socket.on("conversation:new", handleConversationUpdated); // Handle new conversations in real-time
     socket.on("message:new", handleMessageNew);
     socket.on("message:updated", handleMessageEvent);
     socket.on("message:reaction", handleMessageEvent);
     socket.on("message:deleted", handleMessageDeleted);
+    socket.on("message:status:updated", handleMessageStatusUpdate); // Real-time status updates
     socket.on("conversation:delivered", handleConversationDelivery);
     socket.on("conversation:read", handleConversationDelivery);
     socket.on("conversation:muted", handleConversationMuted);
@@ -1131,10 +1262,12 @@ const Chat = () => {
 
     return () => {
       socket.off("conversation:updated", handleConversationUpdated);
+      socket.off("conversation:new", handleConversationUpdated);
       socket.off("message:new", handleMessageNew);
       socket.off("message:updated", handleMessageEvent);
       socket.off("message:reaction", handleMessageEvent);
       socket.off("message:deleted", handleMessageDeleted);
+      socket.off("message:status:updated", handleMessageStatusUpdate);
       socket.off("conversation:delivered", handleConversationDelivery);
       socket.off("conversation:read", handleConversationDelivery);
       socket.off("conversation:muted", handleConversationMuted);
@@ -1200,12 +1333,31 @@ const Chat = () => {
     [isManager, isCustomer, user?.id],
   );
 
+  // Debounced typing indicator to reduce socket emissions
+  const typingDebounceRef = React.useRef(null);
+  const lastTypingEmitRef = React.useRef(0);
+  const TYPING_DEBOUNCE_MS = 300; // Only emit typing every 300ms max
+
   const handleDraftChange = React.useCallback(
     (value) => {
       setDraftValue(value);
       if (!activeConversationId) return;
 
+      const now = Date.now();
+      // Throttle typing emissions to reduce socket overhead
+      if (now - lastTypingEmitRef.current < TYPING_DEBOUNCE_MS) {
+        if (typingDebounceRef.current) {
+          clearTimeout(typingDebounceRef.current);
+        }
+        typingDebounceRef.current = setTimeout(() => {
+          emitTyping(activeConversationId, true);
+          lastTypingEmitRef.current = Date.now();
+        }, TYPING_DEBOUNCE_MS);
+        return;
+      }
+
       emitTyping(activeConversationId, true);
+      lastTypingEmitRef.current = now;
 
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
@@ -1578,6 +1730,9 @@ const Chat = () => {
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
+      if (typingDebounceRef.current) {
+        clearTimeout(typingDebounceRef.current);
+      }
     };
   }, []);
 
@@ -1605,10 +1760,101 @@ const Chat = () => {
     return Object.values(indicator).map((entry) => entry.name);
   }, [typingIndicators, activeConversationId]);
 
+  // Load older messages when scrolling to top
+  const loadOlderMessages = React.useCallback(
+    async (conversationId) => {
+      if (!conversationId || loadingOlderMessages) return;
+      
+      const conversation = rawConversationsRef.current?.[conversationId];
+      if (!conversation) return;
+      
+      const messages = Array.isArray(conversation.messages) ? conversation.messages : [];
+      if (messages.length === 0) return;
+      
+      // Check if more messages are available
+      const hasMore = conversation.hasMoreMessages ?? true;
+      if (!hasMore) return;
+      
+      // Get the oldest message ID to load messages before it
+      const oldestMessage = messages[0];
+      const oldestMessageId = oldestMessage?.id ?? oldestMessage?._id ?? null;
+      if (!oldestMessageId) return;
+      
+      setLoadingOlderMessages(true);
+      try {
+        const { messages: olderMessages, hasMore: hasMoreAfter } = await fetchOlderMessages(
+          conversationId,
+          oldestMessageId,
+          50,
+        );
+        
+        if (olderMessages && olderMessages.length > 0) {
+          setRawConversations((previous) => {
+            const existing = previous[conversationId];
+            if (!existing) return previous;
+            
+            const existingMessages = Array.isArray(existing.messages) ? existing.messages : [];
+            const mergedMap = new Map();
+            
+            // Add existing messages
+            existingMessages.forEach((msg) => {
+              const id = msg?.id ?? msg?._id ?? null;
+              if (id) mergedMap.set(String(id), msg);
+            });
+            
+            // Add older messages (avoid duplicates)
+            olderMessages.forEach((msg) => {
+              const id = msg?.id ?? msg?._id ?? null;
+              if (id && !mergedMap.has(String(id))) {
+                mergedMap.set(String(id), msg);
+              }
+            });
+            
+            const mergedMessages = Array.from(mergedMap.values()).sort(
+              (a, b) => new Date(a?.createdAt ?? 0) - new Date(b?.createdAt ?? 0),
+            );
+            
+            return {
+              ...previous,
+              [conversationId]: {
+                ...existing,
+                messages: mergedMessages,
+                hasMoreMessages: hasMoreAfter,
+              },
+            };
+          });
+        } else {
+          // No more messages
+          setRawConversations((previous) => {
+            const existing = previous[conversationId];
+            if (!existing) return previous;
+            return {
+              ...previous,
+              [conversationId]: {
+                ...existing,
+                hasMoreMessages: false,
+              },
+            };
+          });
+        }
+      } catch (error) {
+        console.error("Failed to load older messages", error);
+        showTransientError("Unable to load older messages.");
+      } finally {
+        setLoadingOlderMessages(false);
+      }
+    },
+    [loadingOlderMessages, showTransientError],
+  );
+
   return (
     <div
       className="relative flex h-screen min-h-[100svh] w-full overflow-hidden bg-[#0b141a]"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      style={{ 
+        paddingBottom: "env(safe-area-inset-bottom)",
+        // Optimize rendering performance
+        willChange: "contents",
+      }}
     >
       {showSidebar && (sidebarOpen || !activeConversation || !isMobile) && (
         <div
@@ -1654,6 +1900,13 @@ const Chat = () => {
               }
             }}
             onToggleMute={handleToggleMute}
+            hasMoreConversations={hasMoreConversations}
+            loadingMoreConversations={loadingMoreConversations}
+            onLoadMoreConversations={() => {
+              if (isManager && hasMoreConversations && !loadingMoreConversations) {
+                fetchConversations({ append: true, skip: conversationsSkip });
+              }
+            }}
           />
         </div>
       )}
@@ -1700,6 +1953,9 @@ const Chat = () => {
             managerPhone={activeConversation.manager?.mobileNumber}
             customerPhone={activeConversation.customer?.phone}
             currentUserType={userType}
+            hasMoreMessages={rawConversations[activeConversationId]?.hasMoreMessages ?? false}
+            loadingOlderMessages={loadingOlderMessages}
+            onLoadOlderMessages={() => loadOlderMessages(activeConversationId)}
           />
         ) : (
           <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 bg-[#111b21] text-center text-[#8696a0]">

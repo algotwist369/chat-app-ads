@@ -1,17 +1,34 @@
 import apiClient from "./apiClient";
 
-export const fetchManagerConversations = async (managerId) => {
-  const response = await apiClient.get(`/api/conversations/manager/${managerId}`);
+export const fetchManagerConversations = async (managerId, options = {}) => {
+  const { limit = 20, skip = 0 } = options;
+  const response = await apiClient.get(`/api/conversations/manager/${managerId}`, {
+    params: { limit, skip },
+  });
   return response.data;
 };
 
-export const fetchCustomerConversation = async (customerId) => {
-  const response = await apiClient.get(`/api/conversations/customer/${customerId}`);
+export const fetchCustomerConversation = async (customerId, options = {}) => {
+  const { limit = 50 } = options;
+  const response = await apiClient.get(`/api/conversations/customer/${customerId}`, {
+    params: { limit },
+  });
   return response.data;
 };
 
-export const fetchConversationById = async (conversationId) => {
-  const response = await apiClient.get(`/api/conversations/${conversationId}`);
+export const fetchConversationById = async (conversationId, options = {}) => {
+  const { limit = 50 } = options;
+  const response = await apiClient.get(`/api/conversations/${conversationId}`, {
+    params: { limit },
+  });
+  return response.data;
+};
+
+// Fetch older messages (pagination)
+export const fetchOlderMessages = async (conversationId, beforeMessageId, limit = 50) => {
+  const response = await apiClient.get(`/api/conversations/${conversationId}/messages`, {
+    params: { before: beforeMessageId, limit },
+  });
   return response.data;
 };
 

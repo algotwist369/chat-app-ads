@@ -18,6 +18,13 @@ router.get(
 
 router.get("/:id", [param("id").isMongoId()], conversationController.getConversation);
 
+// Paginated messages endpoint (load older messages)
+router.get(
+  "/:id/messages",
+  [param("id").isMongoId()],
+  conversationController.getConversationMessages,
+);
+
 router.post(
   "/ensure",
   [

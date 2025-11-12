@@ -145,6 +145,8 @@ const ChatHeaderComponent = ({
             alt={participant?.name ?? "Participant"}
             className="h-full w-full rounded-full object-cover"
             loading="lazy"
+            crossOrigin="anonymous"
+            referrerPolicy="no-referrer-when-downgrade"
           />
         ) : (
           <span className="text-lg font-semibold uppercase tracking-wide text-[#e9edef]">

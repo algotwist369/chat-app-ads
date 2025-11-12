@@ -34,7 +34,10 @@ const ChatHeader = ({
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState(false);
   const [searchValue, setSearchValue] = React.useState("");
-  const presence = presenceColors[participant?.status ?? "offline"];
+  // If status is null, don't show presence dot (hide manager status from customers)
+  const participantStatus = participant?.status ?? null;
+  const shouldShowPresence = participantStatus !== null;
+  const presence = shouldShowPresence ? presenceColors[participantStatus] : null;
 
   const headerTitle = conversationTitle ?? participant?.name ?? "Conversation";
   const secondaryLine =
@@ -82,13 +85,15 @@ const ChatHeader = ({
           {getInitials(participant?.name ?? "")}
         </span>
       )}
-      <span
-        aria-hidden
-        className={cn(
-          "absolute bottom-1 right-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full ring-2 ring-[#0b141a]",
-          presence,
-        )}
-      />
+      {shouldShowPresence && presence && (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute bottom-1 right-1 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full ring-2 ring-[#0b141a]",
+            presence,
+          )}
+        />
+      )}
     </div>
   );
 

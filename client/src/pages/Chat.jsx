@@ -200,7 +200,7 @@ const adaptMessage = ({ message, manager, customer, perspective }) => {
   };
 };
 
-const adaptConversation = (conversation, perspective) => {
+const adaptConversation = (conversation, perspective, onlineStatus = {}) => {
   if (!conversation) return null;
 
   const manager = conversation.manager ?? {};
@@ -212,6 +212,19 @@ const adaptConversation = (conversation, perspective) => {
   const customerDisplayName = customer.name ?? "Customer";
   const managerAvatar = manager.logo ?? buildAvatar(managerDisplayName);
   const customerAvatar = buildAvatar(customerDisplayName);
+
+  // Get online status for participants
+  const managerStatusKey = manager?.id ? `manager:${manager.id}` : null;
+  const customerStatusKey = customer?.id ? `customer:${customer.id}` : null;
+  // Managers can see customer status, but customers should NOT see manager status
+  const isManagerOnline = managerStatusKey ? (onlineStatus[managerStatusKey] ?? false) : false;
+  const isCustomerOnline = customerStatusKey ? (onlineStatus[customerStatusKey] ?? false) : false;
+  
+  // Hide manager status from customers
+  const shouldShowManagerStatus = perspective === "manager";
+  const managerStatusForDisplay = shouldShowManagerStatus 
+    ? (isManagerOnline ? "online" : "offline")
+    : null; // null means don't show status
 
   const adaptedMessages =
     Array.isArray(conversation.messages) && conversation.messages.length
@@ -268,13 +281,13 @@ const adaptConversation = (conversation, perspective) => {
       {
         id: manager.id,
         name: managerDisplayName,
-        status: "online",
+        status: managerStatusForDisplay, // null for customers (hides status), actual status for managers
         avatar: managerAvatar,
       },
       {
         id: customer.id,
         name: customerDisplayName,
-        status: "online",
+        status: isCustomerOnline ? "online" : "offline", // Always show customer status
         avatar: customerAvatar,
       },
     ],
@@ -294,7 +307,10 @@ const adaptConversation = (conversation, perspective) => {
       unreadCount,
       pinned: Boolean(conversation.isPinned),
       muted: Boolean(conversation.mutedBy?.manager || conversation.mutedBy?.customer),
-      status: "online",
+      // Managers see customer status, customers don't see manager status (always offline for them)
+      status: perspective === "manager" 
+        ? (isCustomerOnline ? "online" : "offline")
+        : "offline", // Always show offline for manager when viewed by customer
       avatar: perspective === "manager" ? customerAvatar : managerAvatar,
     },
     mutedBy: conversation.mutedBy ?? { manager: false, customer: false },
@@ -323,6 +339,8 @@ const Chat = () => {
   const [typingIndicators, setTypingIndicators] = React.useState({});
   const [transientError, setTransientError] = React.useState(null);
   const [loadingConversationId, setLoadingConversationId] = React.useState(null);
+  const [currentTime, setCurrentTime] = React.useState(Date.now());
+  const [onlineStatus, setOnlineStatus] = React.useState({}); // { "manager:userId": true, "customer:userId": true }
   const rawConversationsRef = React.useRef(rawConversations);
 
   React.useEffect(() => {
@@ -939,17 +957,42 @@ const Chat = () => {
     fetchConversations();
   }, [fetchConversations]);
 
+  // Update current time every minute to refresh "new" badge status
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 60 * 1000); // Update every minute
+    return () => clearInterval(interval);
+  }, []);
+
   const conversations = React.useMemo(() => {
     const entries = Object.values(rawConversations ?? {});
+    const NEW_CUSTOMER_DURATION = 10 * 60 * 1000; // 10 minutes in milliseconds
+    
     return entries
-      .map((conversation) => adaptConversation(conversation, userType))
+      .map((conversation) => {
+        const adapted = adaptConversation(conversation, userType, onlineStatus);
+        if (!adapted) return null;
+        
+        // Check if conversation is "new" (created within last 10 minutes)
+        // Only show for managers
+        if (userType === "manager" && conversation?.conversation?.createdAt) {
+          const createdAt = new Date(conversation.conversation.createdAt).getTime();
+          const isNew = (currentTime - createdAt) < NEW_CUSTOMER_DURATION;
+          adapted.isNew = isNew;
+        } else {
+          adapted.isNew = false;
+        }
+        
+        return adapted;
+      })
       .filter(Boolean)
       .sort(
         (a, b) =>
           new Date(b?.conversation?.updatedAt ?? 0).getTime() -
           new Date(a?.conversation?.updatedAt ?? 0).getTime(),
       );
-  }, [rawConversations, userType]);
+  }, [rawConversations, userType, currentTime, onlineStatus]);
 
   React.useEffect(() => {
     if (activeChatId) {
@@ -1003,6 +1046,40 @@ const Chat = () => {
             ];
             setCacheItem(listKey, updated, 60 * 1000);
           }
+        }
+      }
+    };
+
+    const handleConversationNew = (payload) => {
+      // Handle new conversation event (when customer joins)
+      if (payload?.id) {
+        logDebug("socket:conversation:new", payload.id);
+        setRawConversations((previous) => ({
+          ...previous,
+          [payload.id]: {
+            ...(previous[payload.id] ?? {}),
+            ...payload,
+            messages: payload.messages ?? previous[payload.id]?.messages ?? [],
+          },
+        }));
+        setCacheItem(CACHE_KEYS.conversation(payload.id), payload, 60 * 1000);
+        if (userType && user?.id) {
+          const listKey = CACHE_KEYS.conversationList(userType, user.id);
+          const cachedList = getCacheItem(listKey);
+          if (Array.isArray(cachedList)) {
+            const updated = [
+              payload,
+              ...cachedList.filter((conversation) => conversation?.id && conversation.id !== payload.id),
+            ];
+            setCacheItem(listKey, updated, 60 * 1000);
+          } else {
+            // If no cached list, create one with the new conversation
+            setCacheItem(listKey, [payload], 60 * 1000);
+          }
+        }
+        // Play notification sound for new customer
+        if (isManager) {
+          playNotificationSound();
         }
       }
     };
@@ -1127,7 +1204,17 @@ const Chat = () => {
       });
     };
 
+    const handlePresenceUpdate = ({ userId, userType, isOnline }) => {
+      if (!userId || !userType) return;
+      const statusKey = `${userType}:${userId}`;
+      setOnlineStatus((previous) => ({
+        ...previous,
+        [statusKey]: isOnline,
+      }));
+    };
+
     socket.on("conversation:updated", handleConversationUpdated);
+    socket.on("conversation:new", handleConversationNew);
     socket.on("message:new", handleMessageNew);
     socket.on("message:updated", handleMessageEvent);
     socket.on("message:reaction", handleMessageEvent);
@@ -1136,9 +1223,11 @@ const Chat = () => {
     socket.on("conversation:read", handleConversationDelivery);
     socket.on("conversation:muted", handleConversationMuted);
     socket.on("conversation:typing", handleTyping);
+    socket.on("presence:update", handlePresenceUpdate);
 
     return () => {
       socket.off("conversation:updated", handleConversationUpdated);
+      socket.off("conversation:new", handleConversationNew);
       socket.off("message:new", handleMessageNew);
       socket.off("message:updated", handleMessageEvent);
       socket.off("message:reaction", handleMessageEvent);
@@ -1147,6 +1236,7 @@ const Chat = () => {
       socket.off("conversation:read", handleConversationDelivery);
       socket.off("conversation:muted", handleConversationMuted);
       socket.off("conversation:typing", handleTyping);
+      socket.off("presence:update", handlePresenceUpdate);
     };
   }, [
     user?.id,
@@ -1634,10 +1724,11 @@ const Chat = () => {
               unreadCount: conversation.sidebar.unreadCount ?? 0,
               pinned: conversation.sidebar.pinned ?? false,
               muted: conversation.sidebar.muted ?? false,
-              status: "online",
+              status: conversation.sidebar.status ?? "offline",
               avatar: conversation.sidebar.avatar,
               sortKey: new Date(conversation?.conversation?.updatedAt ?? 0).getTime(),
               badge: conversation.badge ?? null,
+              isNew: conversation.isNew ?? false,
             }))}
             activeChatId={activeChatId}
             onChatSelect={handleChatSelect}

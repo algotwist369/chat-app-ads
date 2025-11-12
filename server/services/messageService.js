@@ -112,20 +112,13 @@ const createMessage = async (payload) => {
     replyTo: buildReplySnapshot(replyTo),
   });
 
-  // Set sender's delivery state to "read" (they've seen their own message)
   if (authorType === "manager") {
     message.deliveryState.manager.status = "read";
     message.deliveryState.manager.updatedAt = new Date();
-    // Set recipient's (customer) delivery state to "sent"
-    message.deliveryState.customer.status = "sent";
-    message.deliveryState.customer.updatedAt = new Date();
     await message.save();
   } else if (authorType === "customer") {
     message.deliveryState.customer.status = "read";
     message.deliveryState.customer.updatedAt = new Date();
-    // Set recipient's (manager) delivery state to "sent"
-    message.deliveryState.manager.status = "sent";
-    message.deliveryState.manager.updatedAt = new Date();
     await message.save();
   }
 

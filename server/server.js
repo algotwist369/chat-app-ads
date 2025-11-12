@@ -5,7 +5,6 @@ const express = require("express");
 const cors = require("cors");
 const morgan = require("morgan");
 const helmet = require("helmet");
-const compression = require("compression");
 const { connectDatabase } = require("./config/database");
 const managerRoutes = require("./routes/managerRoutes");
 const customerRoutes = require("./routes/customerRoutes");
@@ -26,46 +25,13 @@ const socketCorsOptions = buildSocketCorsOptions();
 const helmetConfig = {
   crossOriginResourcePolicy: { policy: "cross-origin" },
   crossOriginEmbedderPolicy: false,
-  // Allow images to be loaded cross-origin
-  contentSecurityPolicy: {
-    directives: {
-      ...require("helmet").contentSecurityPolicy.getDefaultDirectives(),
-      "img-src": ["'self'", "data:", "blob:", "https:", "http:"],
-    },
-  },
 };
 
 app.use(helmet(helmetConfig));
 app.use(cors(corsOptions));
-// Enable compression for all responses (reduces payload size significantly)
-// Level 6 is a good balance between compression and CPU usage
-// Lower threshold (512 bytes) for better compression on small responses
-app.use(compression({ level: 6, threshold: 512, filter: (req, res) => {
-  // Don't compress if client doesn't support it
-  if (req.headers['x-no-compression']) return false;
-  // Use compression for all other responses
-  return compression.filter(req, res);
-}}));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
-// Serve uploads with proper CORS headers for images to prevent ERR_BLOCKED_BY_ORB
-app.use(UPLOAD_PUBLIC_PATH, cors(corsOptions), (req, res, next) => {
-  // Set Cross-Origin-Resource-Policy to allow cross-origin image loading
-  // This prevents ERR_BLOCKED_BY_ORB errors
-  res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-  res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-  next();
-}, express.static(UPLOAD_DIR, { 
-  maxAge: "7d", 
-  index: false,
-  setHeaders: (res, filePath) => {
-    // Ensure images are served with proper headers to prevent ORB blocking
-    if (filePath.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp|ico|mp4|webm|mp3|wav|pdf)$/i)) {
-      res.setHeader("Cross-Origin-Resource-Policy", "cross-origin");
-      res.setHeader("Cross-Origin-Embedder-Policy", "unsafe-none");
-    }
-  }
-}));
+app.use(UPLOAD_PUBLIC_PATH, cors(corsOptions), express.static(UPLOAD_DIR, { maxAge: "7d", index: false }));
 
 if (process.env.NODE_ENV !== "test") {
   app.use(

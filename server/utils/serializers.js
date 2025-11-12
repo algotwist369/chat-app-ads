@@ -142,29 +142,22 @@ const serializeMessage = (messageDoc) => {
   const managerStatus = deliveryState?.manager?.status ?? baseStatus;
   const customerStatus = deliveryState?.customer?.status ?? baseStatus;
 
-  // Optimize: Only serialize reactions if they exist (avoid empty array creation)
-  const serializedReactions = Array.isArray(reactions) && reactions.length > 0
-    ? reactions.map(serializeReaction).filter(Boolean)
-    : [];
-
   return {
     id: toObjectId(_id),
     conversationId: conversation ? toObjectId(conversation) : null,
     authorType,
     authorId: author ? toObjectId(author) : null,
     content,
-    attachments: Array.isArray(attachments) && attachments.length > 0
-      ? attachments.map(serializeAttachment)
-      : [],
+    attachments: Array.isArray(attachments) ? attachments.map(serializeAttachment) : [],
     status: baseStatus,
     statusByParticipant: {
       manager: managerStatus,
       customer: customerStatus,
     },
-    reactions: serializedReactions,
-    replyTo: replyTo ? serializeReply(replyTo) : null,
-    editedAt: editedAt || null,
-    archivedAt: archivedAt || null,
+    reactions: Array.isArray(reactions) ? reactions.map(serializeReaction).filter(Boolean) : [],
+    replyTo: serializeReply(replyTo),
+    editedAt,
+    archivedAt,
     createdAt,
     updatedAt,
   };

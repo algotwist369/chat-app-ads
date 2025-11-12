@@ -6,6 +6,7 @@ const { toBusinessSlug } = require("../utils/slug");
 const { signToken } = require("../utils/tokens");
 const { serializeManager } = require("../utils/serializers");
 const asyncHandler = require("../utils/asyncHandler");
+const { ensureConversation } = require("../services/conversationService");
 
 const MIN_PASSWORD_LENGTH = 8;
 

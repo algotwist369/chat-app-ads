@@ -29,9 +29,6 @@ const logSocket = (message, context) => {
   }
 };
 
-// Global typing throttle map (shared across all sockets for better performance)
-const typingThrottles = new Map();
-
 const registerSocketHandlers = (io) => {
   io.on("connection", (socket) => {
     const { headers = {}, address = null, query = {} } = socket.handshake ?? {};
@@ -80,42 +77,17 @@ const registerSocketHandlers = (io) => {
       try {
         const conversation = await ensureConversation(managerId, customerId, metadata);
         const serialized = serializeConversation(await getConversationById(conversation._id), []);
-        
-        // Emit to both manager and customer
         io.to(`manager:${serialized.managerId}`).emit("conversation:updated", serialized);
         io.to(`customer:${serialized.customerId}`).emit("conversation:updated", serialized);
-        
-        // Also emit a new conversation event for real-time sidebar updates
-        io.to(`manager:${serialized.managerId}`).emit("conversation:new", serialized);
       } catch (error) {
         socket.emit("error", { message: error.message });
       }
     });
 
-    // Throttle typing events to reduce socket overhead (max once per 200ms per conversation)
     socket.on("conversation:typing", ({ conversationId, actorType, isTyping = true }, callback) => {
       if (!conversationId || !["manager", "customer"].includes(actorType)) {
         if (callback) callback({ ok: false, message: "Invalid typing payload." });
         return;
-      }
-
-      // Throttle typing events to reduce socket overhead
-      const throttleKey = `${conversationId}:${actorType}`;
-      const lastEmit = typingThrottles.get(throttleKey) || 0;
-      const now = Date.now();
-      const TYPING_THROTTLE_MS = 200;
-
-      if (isTyping && now - lastEmit < TYPING_THROTTLE_MS) {
-        if (callback) callback({ ok: true });
-        return; // Skip emission if throttled
-      }
-
-      if (isTyping) {
-        typingThrottles.set(throttleKey, now);
-        // Clean up old throttle entries after 5 seconds
-        setTimeout(() => typingThrottles.delete(throttleKey), 5000);
-      } else {
-        typingThrottles.delete(throttleKey);
       }
 
       const payload = {
@@ -221,32 +193,6 @@ const registerSocketHandlers = (io) => {
     socket.on("conversation:delivered", async ({ conversationId, viewerType }, callback) => {
       try {
         const conversation = await markConversationDelivered(conversationId, viewerType);
-        
-        // Fetch only recently updated messages (last 5 minutes) to avoid emitting too many
-        const { Message } = require("../models");
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const updatedMessages = await Message.find({
-          conversation: conversation._id,
-          authorType: { $ne: viewerType },
-          [`deliveryState.${viewerType === "manager" ? "manager" : "customer"}.status`]: "delivered",
-          [`deliveryState.${viewerType === "manager" ? "manager" : "customer"}.updatedAt`]: { $gte: fiveMinutesAgo },
-        })
-          .sort({ createdAt: -1 })
-          .limit(20)
-          .lean();
-        
-        // Emit updated messages with delivery status
-        updatedMessages.forEach((message) => {
-          const serialized = serializeMessage(message);
-          io.to(`conversation:${conversationId}`).emit("message:status:updated", {
-            messageId: serialized.id,
-            conversationId: conversation._id.toString(),
-            status: "delivered",
-            viewerType,
-            message: serialized,
-          });
-        });
-        
         const payload = {
           conversationId: conversation._id.toString(),
           viewerType,
@@ -262,32 +208,6 @@ const registerSocketHandlers = (io) => {
     socket.on("conversation:read", async ({ conversationId, viewerType }, callback) => {
       try {
         const conversation = await markConversationRead(conversationId, viewerType);
-        
-        // Fetch only recently updated messages (last 5 minutes) to avoid emitting too many
-        const { Message } = require("../models");
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const updatedMessages = await Message.find({
-          conversation: conversation._id,
-          authorType: { $ne: viewerType },
-          [`deliveryState.${viewerType === "manager" ? "manager" : "customer"}.status`]: "read",
-          [`deliveryState.${viewerType === "manager" ? "manager" : "customer"}.updatedAt`]: { $gte: fiveMinutesAgo },
-        })
-          .sort({ createdAt: -1 })
-          .limit(20)
-          .lean();
-        
-        // Emit updated messages with read status
-        updatedMessages.forEach((message) => {
-          const serialized = serializeMessage(message);
-          io.to(`conversation:${conversationId}`).emit("message:status:updated", {
-            messageId: serialized.id,
-            conversationId: conversation._id.toString(),
-            status: "read",
-            viewerType,
-            message: serialized,
-          });
-        });
-        
         const payload = {
           conversationId: conversation._id.toString(),
           viewerType,

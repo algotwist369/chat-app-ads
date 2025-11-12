@@ -12,6 +12,10 @@ const CustomerLogin = () => {
     name: "",
     phone: "",
   });
+  const [fieldErrors, setFieldErrors] = React.useState({
+    name: null,
+    phone: null,
+  });
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState(null);
 
@@ -69,12 +73,138 @@ const CustomerLogin = () => {
       .join(" ");
   }, [managerRecord, businessSlug]);
 
+  // Validate Indian phone number
+  const validateIndianPhone = (phone) => {
+    if (!phone || typeof phone !== "string") {
+      return "Phone number is required";
+    }
+    
+    // Remove spaces and common separators
+    let cleaned = phone.trim().replace(/[\s\-\(\)]/g, "");
+    
+    // Remove +91 prefix if present
+    if (cleaned.startsWith("+91")) {
+      cleaned = cleaned.substring(3);
+    }
+    // Remove 91 prefix if present (without +)
+    else if (cleaned.startsWith("91") && cleaned.length === 12) {
+      cleaned = cleaned.substring(2);
+    }
+    // Remove leading 0 if present
+    else if (cleaned.startsWith("0")) {
+      cleaned = cleaned.substring(1);
+    }
+    
+    // Must be exactly 10 digits and all numeric
+    if (!/^\d{10}$/.test(cleaned)) {
+      if (cleaned.length === 0) {
+        return "Phone number is required";
+      }
+      return "Please enter a valid 10-digit Indian mobile number";
+    }
+    
+    // First digit should be 6-9 (valid Indian mobile number range)
+    const firstDigit = cleaned[0];
+    if (!["6", "7", "8", "9"].includes(firstDigit)) {
+      return "Indian mobile numbers must start with 6, 7, 8, or 9";
+    }
+    
+    return null;
+  };
+
+  // Validate name to prevent dummy entries
+  const validateName = (name) => {
+    if (!name || typeof name !== "string") {
+      return "Name is required";
+    }
+    
+    const trimmed = name.trim();
+    
+    // Minimum length check
+    if (trimmed.length < 2) {
+      if (trimmed.length === 0) {
+        return "Name is required";
+      }
+      return "Name must be at least 2 characters long";
+    }
+    
+    if (trimmed.length > 50) {
+      return "Name must not exceed 50 characters";
+    }
+    
+    // Should contain at least one letter (not just numbers or special chars)
+    if (!/[a-zA-Z]/.test(trimmed)) {
+      return "Name must contain at least one letter";
+    }
+    
+    // Common dummy/test names to reject (case insensitive)
+    const dummyNames = [
+      "test",
+      "dummy",
+      "abc",
+      "xyz",
+      "123",
+      "qwerty",
+      "asdf",
+      "user",
+      "admin",
+      "customer",
+      "name",
+      "temp",
+      "temporary",
+      "demo",
+      "sample",
+      "fake",
+      "spam",
+      "bot",
+      "guest",
+      "anonymous",
+    ];
+    
+    const lowerName = trimmed.toLowerCase();
+    for (const dummy of dummyNames) {
+      if (lowerName === dummy || lowerName.startsWith(dummy + " ") || lowerName.endsWith(" " + dummy)) {
+        return "Please enter a valid name";
+      }
+    }
+    
+    // Should not be just numbers
+    if (/^\d+$/.test(trimmed.replace(/\s/g, ""))) {
+      return "Name cannot be just numbers";
+    }
+    
+    // Should not contain only special characters
+    if (!/[a-zA-Z0-9]/.test(trimmed)) {
+      return "Name must contain letters or numbers";
+    }
+    
+    return null;
+  };
+
   const handleChange = (event) => {
     const { name, value } = event.target;
     setFormState((previous) => ({
       ...previous,
       [name]: value,
     }));
+
+    // Real-time validation while typing
+    let error = null;
+    if (name === "phone") {
+      error = validateIndianPhone(value);
+    } else if (name === "name") {
+      error = validateName(value);
+    }
+
+    setFieldErrors((previous) => ({
+      ...previous,
+      [name]: error,
+    }));
+
+    // Clear general error when user starts typing
+    if (error) {
+      setError(null);
+    }
   };
 
   const handleSubmit = async (event) => {
@@ -84,6 +214,20 @@ const CustomerLogin = () => {
 
     if (!businessSlug) {
       setError("Please use the invite link provided by your manager to join the chat.");
+      setLoading(false);
+      return;
+    }
+
+    // Validate before submitting
+    const nameError = validateName(formState.name);
+    const phoneError = validateIndianPhone(formState.phone);
+    
+    if (nameError || phoneError) {
+      setFieldErrors({
+        name: nameError,
+        phone: phoneError,
+      });
+      setError("Please fix the errors above");
       setLoading(false);
       return;
     }
@@ -118,19 +262,44 @@ const CustomerLogin = () => {
       const redirectPath = location.state?.from ?? fallbackPath;
       navigate(redirectPath, { replace: true });
     } catch (requestError) {
-      const message =
-        requestError?.response?.data?.message ??
-        requestError?.response?.data?.error ??
-        requestError?.message ??
-        "Unable to start a chat right now.";
-      setError(message);
+      // Handle validation errors from server
+      if (requestError?.response?.status === 422 && requestError?.response?.data?.details) {
+        const validationErrors = requestError.response.data.details;
+        const newFieldErrors = { name: null, phone: null };
+        
+        validationErrors.forEach((err) => {
+          if (err.path === "name") {
+            newFieldErrors.name = err.msg || "Please enter a valid name";
+          } else if (err.path === "phone") {
+            newFieldErrors.phone = err.msg || "Please enter a valid 10-digit Indian mobile number";
+          }
+        });
+        
+        setFieldErrors(newFieldErrors);
+        setError("Please fix the errors above");
+      } else {
+        const message =
+          requestError?.response?.data?.message ??
+          requestError?.response?.data?.error ??
+          requestError?.message ??
+          "Unable to start a chat right now.";
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const inputClasses =
-    "h-12 w-full rounded-2xl border border-transparent bg-[#202c33] px-4 text-sm text-[#e9edef] placeholder:text-[#667781] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/40 focus-visible:border-[#25d366]/70";
+  const getInputClasses = (hasError) => {
+    const baseClasses =
+      "h-12 w-full rounded-2xl border bg-[#202c33] px-4 text-sm text-[#e9edef] placeholder:text-[#667781] focus-visible:outline-none focus-visible:ring-2";
+    
+    if (hasError) {
+      return `${baseClasses} border-[#ff4d6d]/60 focus-visible:ring-[#ff4d6d]/40 focus-visible:border-[#ff4d6d]/80`;
+    }
+    
+    return `${baseClasses} border-transparent focus-visible:ring-[#25d366]/40 focus-visible:border-[#25d366]/70`;
+  };
 
   return (
     <section className="flex min-h-screen items-center justify-center bg-[#111b21] px-4 py-10">
@@ -183,12 +352,15 @@ const CustomerLogin = () => {
                 value={formState.name}
                 onChange={handleChange}
                 placeholder="Enter your full name"
-                className={cn(inputClasses, "pl-11")}
+                className={cn(getInputClasses(fieldErrors.name), "pl-11")}
                 disabled={loading}
                 required
                 autoComplete="name"
               />
             </div>
+            {fieldErrors.name && (
+              <p className="text-xs text-[#ff4d6d] mt-1">{fieldErrors.name}</p>
+            )}
           </div>
 
           <div className="flex flex-col gap-2">
@@ -203,15 +375,18 @@ const CustomerLogin = () => {
                 type="tel"
                 value={formState.phone}
                 onChange={handleChange}
-                placeholder="e.g. +1 555 123 4567"
-                className={cn(inputClasses, "pl-11")}
+                placeholder="e.g. 9876543210 or +919876543210"
+                className={cn(getInputClasses(fieldErrors.phone), "pl-11")}
                 disabled={loading}
                 required
-                pattern="^\+?\d[\d\s-]{7,}$"
                 autoComplete="tel"
               />
             </div>
-            <p className="text-xs text-[#667781]">We&apos;ll use your number to notify you about responses.</p>
+            {fieldErrors.phone ? (
+              <p className="text-xs text-[#ff4d6d] mt-1">{fieldErrors.phone}</p>
+            ) : (
+              <p className="text-xs text-[#667781]">Enter your 10-digit Indian mobile number (e.g., 9876543210)</p>
+            )}
           </div>
 
           {error ? (

@@ -20,7 +20,6 @@ const ManagerSchema = new Schema(
       lowercase: true,
       trim: true,
       unique: true,
-      index: true,
     },
     contactEmail: {
       type: String,
@@ -28,7 +27,6 @@ const ManagerSchema = new Schema(
       lowercase: true,
       trim: true,
       unique: true,
-      index: true,
     },
     passwordHash: {
       type: String,
@@ -44,8 +42,6 @@ const ManagerSchema = new Schema(
     },
     inviteToken: {
       type: String,
-      unique: true,
-      sparse: true,
     },
     isActive: {
       type: Boolean,
@@ -71,9 +67,8 @@ const ManagerSchema = new Schema(
   },
 );
 
-ManagerSchema.index({ businessSlug: 1 });
-ManagerSchema.index({ contactEmail: 1 });
-ManagerSchema.index({ inviteToken: 1 }, { sparse: true });
+// inviteToken needs sparse unique index to allow multiple null values while maintaining uniqueness
+ManagerSchema.index({ inviteToken: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.models.Manager || mongoose.model("Manager", ManagerSchema);
 

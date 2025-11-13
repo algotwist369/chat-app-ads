@@ -167,6 +167,29 @@ const setConversationMuteHandler = asyncHandler(async (req, res) => {
   });
 });
 
+const disableAutoChatHandler = asyncHandler(async (req, res) => {
+  handleValidation(req);
+  const { conversationId } = req.params;
+  const { disableAutoChat } = require("../services/autoChatService");
+  const conversation = await disableAutoChat(conversationId);
+  if (!conversation) {
+    const error = new Error("Conversation not found.");
+    error.status = 404;
+    throw error;
+  }
+  const messages = await Message.find({ conversation: conversation._id }).sort({ createdAt: 1 });
+  await invalidateConversationCaches(conversationId);
+  const io = req.app.get("io");
+  if (io) {
+    const { serializeConversation } = require("../utils/serializers");
+    const serialized = serializeConversation(conversation, messages);
+    io.to(`conversation:${conversationId}`).emit("conversation:updated", serialized);
+  }
+  res.json({
+    conversation: serializeConversation(conversation, messages),
+  });
+});
+
 module.exports = {
   getManagerConversations,
   getConversation,
@@ -175,6 +198,7 @@ module.exports = {
   markDeliveredHandler,
   markReadHandler,
   setConversationMuteHandler,
+  disableAutoChatHandler,
 };
 
 

@@ -63,6 +63,7 @@ const sendMessage = asyncHandler(async (req, res) => {
       return parsed && typeof parsed === "object" ? parsed : null;
     })(),
     status: req.body.status,
+    action: req.body.action || null, // Extract action for auto-chat
   };
 
   try {
@@ -73,6 +74,38 @@ const sendMessage = asyncHandler(async (req, res) => {
     const io = req.app.get("io");
     if (io) {
       io.to(`conversation:${serialized.conversationId}`).emit("message:new", serialized);
+    }
+
+    // If customer sent a message and auto-chat is enabled, process auto-response
+    if (payload.authorType === "customer" && serialized.conversationId) {
+      const { processCustomerMessage } = require("../services/autoChatService");
+      const { Conversation } = require("../models");
+      const conversation = await Conversation.findById(serialized.conversationId);
+      
+      if (conversation && conversation.autoChatEnabled) {
+        // Process auto-response asynchronously (don't block the response)
+        processCustomerMessage(serialized.conversationId, payload.content, payload.action)
+          .then((autoResponse) => {
+            if (autoResponse && io) {
+              const autoSerialized = serializeMessage(autoResponse);
+              io.to(`conversation:${serialized.conversationId}`).emit("message:new", autoSerialized);
+              
+              // Update conversation
+              const { getConversationById } = require("../services/conversationService");
+              const { serializeConversation } = require("../utils/serializers");
+              getConversationById(serialized.conversationId)
+                .then((updatedConv) => {
+                  const convSerialized = serializeConversation(updatedConv, []);
+                  io.to(`manager:${updatedConv.manager}`).emit("conversation:updated", convSerialized);
+                  io.to(`customer:${updatedConv.customer}`).emit("conversation:updated", convSerialized);
+                })
+                .catch((err) => console.error("Failed to update conversation:", err));
+            }
+          })
+          .catch((error) => {
+            console.error("Failed to process auto-response:", error);
+          });
+      }
     }
 
     res.status(201).json({

@@ -432,12 +432,32 @@ const ReplyPreview = memo(function ReplyPreview({ reply, isOwn }) {
 
 ReplyPreview.displayName = "ReplyPreview";
 
-export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn, onContext, onReact, onMediaOpen }, ref) {
+// Extract quick replies from message content
+const extractQuickReplies = (content) => {
+    if (!content || typeof content !== "string") return { content: content || "", quickReplies: [] };
+    const quickRepliesMatch = content.match(/<!-- QUICK_REPLIES:(.+?) -->/);
+    if (!quickRepliesMatch) return { content, quickReplies: [] };
+    try {
+        const quickReplies = JSON.parse(quickRepliesMatch[1]);
+        const cleanContent = content.replace(/<!-- QUICK_REPLIES:.+? -->/g, "").trim();
+        return { content: cleanContent, quickReplies: Array.isArray(quickReplies) ? quickReplies : [] };
+    } catch (error) {
+        console.error("Failed to parse quick replies:", error);
+        return { content, quickReplies: [] };
+    }
+};
+
+export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn, onContext, onReact, onMediaOpen, onQuickReply }, ref) {
     const [isPickerOpen, setIsPickerOpen] = useState(false);
     const [showTouchActions, setShowTouchActions] = useState(false);
     const pickerRef = useRef(null);
     const isTouchRef = useRef(false);
     const touchActionsTimeoutRef = useRef(null);
+
+    // Extract quick replies from message content
+    const { content: displayContent, quickReplies } = useMemo(() => {
+        return extractQuickReplies(message?.content);
+    }, [message?.content]);
 
     const statusMeta = useMemo(() => getStatusMeta(message?.status), [message?.status]);
     const hasMeta =
@@ -611,12 +631,28 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
 
             <MediaPreview media={message.media?.length ? message.media : message.attachments} onOpenMedia={onMediaOpen} />
 
-            {message.content ? (
+            {displayContent ? (
                 <div className="flex items-end gap-2">
-                    <p className="flex-1 whitespace-pre-line break-words sm:break-normal">{message.content}</p>
+                    <p className="flex-1 whitespace-pre-line break-words sm:break-normal">{displayContent}</p>
                     {renderMeta("ml-auto shrink-0 whitespace-nowrap text-right")}
                 </div>
             ) : null}
+
+            {/* Quick Reply Buttons - Only show for manager messages when not own message */}
+            {!isOwn && quickReplies && quickReplies.length > 0 && onQuickReply && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                    {quickReplies.map((reply, index) => (
+                        <button
+                            key={index}
+                            type="button"
+                            onClick={() => onQuickReply(reply.action, reply.text, message.conversationId)}
+                            className="inline-flex items-center justify-center rounded-full border border-[#25d366]/40 bg-[#0b141a]/60 px-3 py-1.5 text-xs font-medium text-[#25d366] transition-colors duration-150 hover:bg-[#25d366]/10 hover:border-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
+                        >
+                            {reply.text}
+                        </button>
+                    ))}
+                </div>
+            )}
 
             {message.reactions?.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-2">
@@ -630,7 +666,7 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
                 </div>
             )}
 
-            {!message.content && renderMeta("mt-1 self-end")}
+            {!displayContent && renderMeta("mt-1 self-end")}
         </article>
     );
 });

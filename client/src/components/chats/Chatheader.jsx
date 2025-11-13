@@ -179,7 +179,8 @@ const ChatHeader = ({
         <button
           type="button"
           onClick={onVideo}
-          className="hidden h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-all duration-200 hover:bg-[#202c33] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:flex sm:h-11 sm:w-11"
+          disabled
+          className="hidden h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-all duration-200 opacity-50 cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:flex sm:h-11 sm:w-11"
           aria-label="Start video call"
         >
           <FiVideo className="h-5 w-5" />

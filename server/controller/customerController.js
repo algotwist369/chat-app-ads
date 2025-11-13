@@ -111,6 +111,26 @@ const customerJoin = asyncHandler(async (req, res) => {
       if (wasNewConversation) {
         // Only emit "new" event for newly created conversations
         io.to(`manager:${manager._id.toString()}`).emit("conversation:new", serialized);
+        
+        // Send welcome message for new conversations
+        const { sendWelcomeMessage } = require("../services/autoChatService");
+        const managerName = manager.managerName ?? manager.businessName ?? "Manager";
+        const customerName = customer.name ?? "Customer";
+        
+        // Send welcome message asynchronously (don't block the response)
+        sendWelcomeMessage(conversation._id, manager._id, managerName, customerName)
+          .then((welcomeMessage) => {
+            if (welcomeMessage && io) {
+              const { serializeMessage } = require("../utils/serializers");
+              const serialized = serializeMessage(welcomeMessage);
+              io.to(`conversation:${conversation._id.toString()}`).emit("message:new", serialized);
+              io.to(`manager:${manager._id.toString()}`).emit("conversation:updated", serialized);
+              io.to(`customer:${customer._id.toString()}`).emit("conversation:updated", serialized);
+            }
+          })
+          .catch((error) => {
+            console.error("Failed to send welcome message:", error);
+          });
       }
       // Always emit updated event for compatibility
       io.to(`manager:${manager._id.toString()}`).emit("conversation:updated", serialized);

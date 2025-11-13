@@ -89,6 +89,15 @@ const ConversationSchema = new Schema(
       type: Boolean,
       default: false,
     },
+    autoChatEnabled: {
+      type: Boolean,
+      default: true,
+    },
+    autoChatMessageCount: {
+      type: Number,
+      min: 0,
+      default: 0,
+    },
   },
   {
     timestamps: true,

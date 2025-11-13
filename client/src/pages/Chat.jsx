@@ -1313,6 +1313,53 @@ const Chat = () => {
     [activeConversationId, emitTyping],
   );
 
+  const handleQuickReply = React.useCallback(
+    async (action, text, conversationId) => {
+      if (!conversationId || !isCustomer) return;
+
+      // If action is "talk_with_manager", disable auto-chat first
+      if (action === "talk_with_manager") {
+        try {
+          const response = await fetch(`${import.meta.env.VITE_API_URL}/api/conversations/${conversationId}/disable-auto-chat`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${localStorage.getItem("token")}`,
+            },
+          });
+          if (!response.ok) {
+            console.error("Failed to disable auto-chat");
+          }
+        } catch (error) {
+          console.error("Error disabling auto-chat:", error);
+        }
+      }
+
+      // Send message with action
+      const formData = new FormData();
+      formData.append("conversationId", conversationId);
+      formData.append("authorType", "customer");
+      formData.append("authorId", user?.id ?? "");
+      formData.append("content", text);
+      if (action) {
+        formData.append("action", action);
+      }
+
+      try {
+        const response = await postMessage(formData);
+        const savedMessage = response?.message;
+        if (savedMessage) {
+          const convId = String(savedMessage.conversationId ?? conversationId);
+          mergeConversationMessage(savedMessage, { source: "quick-reply" });
+          refreshConversation(convId, { force: false, showSkeleton: false });
+        }
+      } catch (error) {
+        console.error("Failed to send quick reply:", error);
+      }
+    },
+    [isCustomer, user?.id, mergeConversationMessage, refreshConversation],
+  );
+
   const handleSend = React.useCallback(
     async (payload) => {
       if (!activeConversationId || !activeConversation) return;
@@ -1778,6 +1825,7 @@ const Chat = () => {
             currentUserId={user?.id ?? null}
             onReact={handleReaction}
             onSend={handleSend}
+            onQuickReply={handleQuickReply}
             draftValue={draftValue}
             onDraftChange={handleDraftChange}
             replyingTo={replyTarget}
@@ -1794,6 +1842,7 @@ const Chat = () => {
             }
             typingParticipants={typingParticipants}
             isLoading={isConversationLoading}
+            conversationId={activeChatId}
           />
         ) : (
           <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 bg-[#111b21] text-center text-[#8696a0]">

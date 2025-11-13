@@ -138,6 +138,7 @@ const ChatWindow = ({
   onMore,
   onReact,
   onSend,
+  onQuickReply,
   onMessageMenu,
   draftValue,
   onDraftChange,
@@ -146,6 +147,7 @@ const ChatWindow = ({
   editingMessage,
   onCancelEdit,
   typingParticipants = [],
+  conversationId,
   className,
   isLoading = false,
 }) => {
@@ -271,6 +273,7 @@ const ChatWindow = ({
                   onReact={onReact}
                   onContext={onMessageMenu}
                   onMediaOpen={handleOpenMedia}
+                  onQuickReply={onQuickReply ? (action, text) => onQuickReply(action, text, conversationId) : undefined}
                 />
               ))}
             </>

@@ -92,9 +92,7 @@ export const ensureConversation = (managerId, customerId, metadata = {}) => {
       {
         id: generateId(),
         authorType: "system",
-        content: `Conversation created between ${metadata.customerName ?? "Customer"} and ${
-          metadata.managerName ?? "Manager"
-        }.`,
+        content: `Conversation created between ${customerName || "Customer"} and you`,
         createdAt: now,
       },
     ],

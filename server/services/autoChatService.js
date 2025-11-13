@@ -1,22 +1,130 @@
-const { Message, Conversation } = require("../models");
+const { Message, Conversation, Manager } = require("../models");
 const { createMessage } = require("./messageService");
 const { getConversationById } = require("./conversationService");
 
 const MAX_AUTO_CHAT_MESSAGES = 10;
 
+const SPA_SERVICES = [
+  {
+    name: "Signature Relaxation Massage",
+    description: "60 min | ₹99",
+    action: "service_signature_relaxation",
+  },
+  {
+    name: "Deep Tissue Massage",
+    description: "90 min | ₹129",
+    action: "service_deep_tissue",
+  },
+  {
+    name: "Radiance Facial",
+    description: "75 min | ₹119",
+    action: "service_radiance_facial",
+  },
+  {
+    name: "Glow Body Polish",
+    description: "60 min | ₹109",
+    action: "service_glow_body_polish",
+  },
+  {
+    name: "Couples Retreat",
+    description: "90 min | ₹249",
+    action: "service_couples_retreat",
+  },
+];
+
+const SPA_TIME_SLOTS = [
+  { label: "10:00 AM – 12:00 PM", action: "slot_morning" },
+  { label: "12:00 PM – 2:00 PM", action: "slot_midday" },
+  { label: "2:00 PM – 4:00 PM", action: "slot_afternoon" },
+  { label: "4:00 PM – 6:00 PM", action: "slot_evening" },
+];
+
+// Helper to get manager details
+const getManagerDetails = async (managerId) => {
+  try {
+    const manager = await Manager.findById(managerId).lean();
+    if (!manager) return null;
+
+    const businessName = manager.businessName || "Our Spa";
+    const phone = manager.mobileNumber || "+91 9125846358";
+    const locationLink = `https://maps.google.com/?q=${encodeURIComponent(businessName)}`;
+
+    return {
+      businessName,
+      phone,
+      locationLink,
+      managerName: manager.managerName || businessName,
+    };
+  } catch (error) {
+    console.error("Failed to get manager details:", error);
+    return {
+      businessName: "Our Spa",
+      phone: "+91 9125846358",
+      locationLink: "https://maps.google.com/?q=Spa+Location",
+      managerName: "Manager",
+    };
+  }
+};
+
+// Helper to format date
+const formatDate = (date) => {
+  if (!date) {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    date = tomorrow;
+  }
+  return date.toLocaleDateString("en-IN", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+};
+
+// Helper to get booking state from conversation metadata
+const getBookingState = (conversation) => {
+  if (!conversation.metadata) return null;
+  const bookingData = conversation.metadata.bookingData;
+  if (!bookingData) return null;
+  return bookingData;
+};
+
+// Helper to save booking state to conversation metadata
+const saveBookingState = async (conversationId, bookingData) => {
+  try {
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) return;
+
+    if (!conversation.metadata) {
+      conversation.metadata = {};
+    }
+    conversation.metadata.bookingData = {
+      ...(conversation.metadata.bookingData || {}),
+      ...bookingData,
+    };
+    await conversation.save();
+  } catch (error) {
+    console.error("Failed to save booking state:", error);
+  }
+};
+
 // Welcome message with quick reply options
-const getWelcomeMessage = (managerName, customerName) => ({
-  content: `Hello ${customerName}! 👋\n\nWelcome! I'm ${managerName}'s AI assistant. I can help you with:\n\n• Free business listing\n• Appointment booking\n• Features & pricing\n• Customer management\n• Marketing campaigns\n• And much more!\n\nHow can I assist you today?`,
-  quickReplies: [
-    { text: "Free Business Listing", action: "business_listing" },
-    { text: "Appointment Booking", action: "appointment_booking" },
-    { text: "Features & Services", action: "features" },
-    { text: "Pricing Plans", action: "pricing" },
-  ],
-});
+const getWelcomeMessage = (_managerName, customerName, managerBusinessName, managerDetails) => {
+  const locationLink = managerDetails?.locationLink || "https://maps.google.com/?q=Spa+Location";
+
+  return {
+    content: `Hello ${customerName}! 👋\n\nA warm welcome to ${managerBusinessName || "Our Spa"}. We can't wait to pamper you! 🌸\n\nFirst visit? Enjoy **10% off** or a **FREE 15-min neck massage** with any paid service-just tap *Claim Welcome Offer* to get started.\n\n📍 Location: ${locationLink}\n☎️ Need help right away? Tap *Call the Spa* and our team will jump in.\n\nHow can I make your day more relaxing?`,
+    quickReplies: [
+      { text: "Claim Offer", action: "claim_offer" },
+      { text: "Services & Pricing", action: "services_pricing" },
+      { text: "Book an Appointment", action: "book_now" },
+      { text: "Call the Spa", action: "call_spa" },
+    ],
+  };
+};
 
 // Get bot response based on customer message
-const getBotResponse = (message, action = null, messageCount = 0) => {
+const getBotResponse = async (message, action = null, _messageCount = 0, conversation = null, managerDetails = null, customerName = null) => {
   const lowerMessage = (message || "").toLowerCase().trim();
 
   // Check if customer wants to talk with manager
@@ -29,140 +137,238 @@ const getBotResponse = (message, action = null, messageCount = 0) => {
     lowerMessage.includes("real person")
   ) {
     return {
-      content: "I'll connect you with our manager right away! They'll respond to you shortly. 😊",
+      content: "I'll connect you with our manager right away! They'll respond to you shortly. Kindly wait for a few minutes.😊",
       quickReplies: [],
       disableAutoChat: true,
     };
   }
 
-  // Business Listing
+  // Claim welcome offer
   if (
-    action === "business_listing" ||
-    lowerMessage.includes("list") ||
-    lowerMessage.includes("register") ||
-    lowerMessage.includes("sign up") ||
-    lowerMessage.includes("free listing")
+    action === "claim_offer" ||
+    lowerMessage.includes("claim") ||
+    (lowerMessage.includes("yes") && lowerMessage.includes("offer"))
   ) {
+    // Show services in a more organized way
+    const serviceList = SPA_SERVICES.slice(0, 3)
+      .map((service) => `• ${service.name} – ${service.description}`)
+      .join("\n");
+
     return {
       content:
-        "🚀 Free Business Listing - Get Started in Minutes!\n\n✅ 100% FREE - No charges ever\n✅ Quick 2-step registration\n✅ OTP verification\n✅ Complete business profile\n✅ Document upload (optional)\n✅ Team connects within 24 hours\n\n📋 Process:\n1. Click 'Free Listing' in header\n2. Enter company name & mobile\n3. Verify OTP\n4. Fill business details form\n5. Upload documents (optional)\n6. Submit & wait for activation\n\nReady to list your business?",
+        "Perfect! 🎉 You've unlocked **10% off** or a **FREE 15-min neck & shoulder massage** with any paid service.\n\nHere are our guest favorites:\n" +
+        serviceList +
+        "\n\nReady to choose your pampering experience?",
       quickReplies: [
-        { text: "Start listing now", action: "start_listing" },
-        { text: "What documents needed?", action: "documents" },
-        { text: "Benefits of listing", action: "listing_benefits" },
+        ...SPA_SERVICES.slice(0, 3).map((service) => ({
+          text: service.name,
+          action: service.action,
+        })),
+        { text: "See All Services", action: "services_pricing" },
+        { text: "Call the Spa", action: "call_spa" },
+      ],
+      bookingData: { offerClaimed: true },
+    };
+  }
+
+  // Services & pricing overview
+  if (
+    action === "services_pricing" ||
+    lowerMessage.includes("service") ||
+    lowerMessage.includes("menu") ||
+    lowerMessage.includes("price") ||
+    lowerMessage.includes("pricing")
+  ) {
+    // Break into sections for better readability
+    const allServices = SPA_SERVICES.map((service) => `• ${service.name} — ${service.description}`).join("\n");
+
+    return {
+      content:
+        "🌿 **Spa Services & Pricing**\n\n" +
+        allServices +
+        "\n\n✨ **Each visit includes:**\n• Welcome tea ritual\n• Aromatherapy bar\n• Relaxation lounge access\n\nWould you like to book a session?",
+      quickReplies: [
+        ...SPA_SERVICES.slice(0, 3).map((service) => ({
+          text: service.name,
+          action: service.action,
+        })),
+        { text: "Book an Appointment", action: "book_now" },
+        { text: "Claim Welcome Offer", action: "claim_offer" },
       ],
     };
   }
 
-  // Appointment Booking
+  // Booking flow
   if (
-    action === "appointment_booking" ||
+    action === "book_now" ||
     lowerMessage.includes("book") ||
     lowerMessage.includes("appointment") ||
-    lowerMessage.includes("schedule") ||
-    lowerMessage.includes("booking")
+    lowerMessage.includes("schedule")
   ) {
     return {
       content:
-        "📅 Online Appointment Booking System\n\n✨ Features:\n• 24/7 online booking\n• Real-time availability\n• Multi-staff scheduling\n• Service selection\n• Time slot booking\n• Customer information capture\n• Automated confirmations\n• SMS & Email reminders\n• Reschedule & cancel options\n\n🎯 For Customers:\n• Search businesses\n• Select services\n• Choose staff & time\n• Book instantly\n• Get reminders\n\n🎯 For Businesses:\n• Accept bookings 24/7\n• Reduce no-shows\n• Manage calendar\n• Track appointments\n\nWant to know more?",
+        "Perfect! Let's secure your pampering session. 💆‍♀️✨\n\nPlease pick the service you'd love to enjoy, and I'll share the best time slots.",
       quickReplies: [
-        { text: "How to book?", action: "how_to_book" },
-        { text: "For businesses", action: "booking_for_business" },
-        { text: "Reminders & notifications", action: "reminders" },
+        ...SPA_SERVICES.slice(0, 3).map((service) => ({
+          text: service.name,
+          action: service.action,
+        })),
+        { text: "See All Services", action: "services_pricing" },
+        { text: "Call the Spa", action: "call_spa" },
+        { text: "View Location", action: "spa_location" },
       ],
     };
   }
 
-  // Features
-  if (
-    action === "features" ||
-    lowerMessage.includes("feature") ||
-    lowerMessage.includes("what can") ||
-    lowerMessage.includes("capabilities")
-  ) {
+  // Service selection
+  const selectedService = SPA_SERVICES.find(
+    (service) =>
+      action === service.action ||
+      lowerMessage.includes(service.name.toLowerCase()),
+  );
+
+  if (selectedService) {
+    const bookingState = conversation ? getBookingState(conversation) : null;
+    return {
+      content: `Excellent choice! 🌟 **${selectedService.name}** (${selectedService.description})\n\nLet me know which time frame works best for you, and I'll reserve a cozy suite.`,
+      quickReplies: [
+        ...SPA_TIME_SLOTS.map((slot) => ({
+          text: slot.label,
+          action: slot.action,
+        })),
+        { text: "Change Service", action: "book_now" },
+        { text: "Call the Spa", action: "call_spa" },
+      ],
+      bookingData: {
+        ...(bookingState || {}),
+        service: selectedService.name,
+        serviceDescription: selectedService.description,
+      },
+    };
+  }
+
+  // Time slot selection
+  const selectedSlot = SPA_TIME_SLOTS.find(
+    (slot) =>
+      action === slot.action || lowerMessage.includes(slot.label.toLowerCase()),
+  );
+
+  if (selectedSlot) {
+    const bookingState = conversation ? getBookingState(conversation) : null;
+    const serviceName = bookingState?.service || "Your selected treatment";
+    const serviceDesc = bookingState?.serviceDescription || "";
+    const businessName = managerDetails?.businessName || "Our Spa";
+    const locationLink = managerDetails?.locationLink || "https://maps.google.com/?q=Spa+Location";
+    const phone = managerDetails?.phone || "+91 9876543210";
+    const managerName = managerDetails?.managerName || "Our Team";
+
+    // Get customer name from conversation metadata or parameter
+    const customerDisplayName = customerName ||
+      conversation?.metadata?.customerName ||
+      conversation?.customer?.name ||
+      "Valued Guest";
+
+    // Generate a date (tomorrow by default, or use stored date)
+    let appointmentDate;
+    if (bookingState?.date) {
+      appointmentDate = bookingState.date instanceof Date ? bookingState.date : new Date(bookingState.date);
+    } else {
+      // Default to tomorrow
+      appointmentDate = new Date();
+      appointmentDate.setDate(appointmentDate.getDate() + 1);
+    }
+
+    // Ensure date is valid
+    if (isNaN(appointmentDate.getTime())) {
+      appointmentDate = new Date();
+      appointmentDate.setDate(appointmentDate.getDate() + 1);
+    }
+
+    const formattedDate = formatDate(appointmentDate);
+
+    // Determine if offer was claimed (check if conversation has offer claimed flag)
+    const offerClaimed = bookingState?.offerClaimed === true;
+
+    const offerText = offerClaimed ? " + FREE Neck Massage / 10% OFF" : "";
+
     return {
       content:
-        "🌟 Complete Business Management Platform\n\n📊 Core Features:\n\n1️⃣ Appointment Management\n• Online booking 24/7\n• Calendar integration\n• Multi-staff scheduling\n• Automated reminders\n• Waitlist management\n\n2️⃣ Customer Management (CRM)\n• Customer database\n• History tracking\n• Segmentation\n• Loyalty programs\n• Customer insights\n\n3️⃣ Staff Management\n• Add multiple staff\n• Role-based access\n• Schedule management\n• Performance tracking\n\n4️⃣ Marketing & Campaigns\n• Email campaigns\n• SMS marketing\n• Automated campaigns\n• Customer targeting\n• Promotional offers\n\n5️⃣ Analytics & Reports\n• Revenue analytics\n• Customer insights\n• Performance metrics\n• Custom reports\n• Trend analysis\n\nWhich feature interests you?",
+        `**Booking Confirmed!** 🎈\n\n` +
+        `Dear ${customerDisplayName || 'Valued Guest'},\n\n` +
+        `📅 **Date:** ${formattedDate}\n` +
+        `🕒 **Time:** ${selectedSlot.label}\n` +
+        `💆‍♀️ **Service:** ${serviceName}${offerText}\n` +
+        `👤 **Therapist:** ${managerName || 'Our Therapist'} will be ready for you!\n` +
+        `📍 **Location:** ${locationLink}\n\n` +
+        `🌿 Arrive 10 mins early for a welcome herbal tea\n\n` +
+        `💬 **Need to reschedule?** Just reply *CHANGE*\n` +
+        `❓ **Questions?** Reply *HELP*\n\n` +
+        `See you soon, ${customerDisplayName || 'Valued Guest'}! 😊\n\n` +
+        `_${businessName} Team_`,
       quickReplies: [
-        { text: "Appointment features", action: "appointment_booking" },
-        { text: "CRM features", action: "customer_management" },
-        { text: "Marketing features", action: "marketing" },
-        { text: "Analytics features", action: "analytics" },
+        { text: "Change Time", action: "book_now" },
+        { text: "View Location", action: "spa_location" },
+        { text: "Call the Spa", action: "call_spa" },
+        { text: "Chat with Manager", action: "talk_with_manager" },
+      ],
+      bookingData: {
+        ...bookingState,
+        timeSlot: selectedSlot.label,
+        date: appointmentDate,
+        confirmed: true,
+      },
+    };
+  }
+
+  // Location details
+  if (
+    action === "spa_location" ||
+    lowerMessage.includes("location") ||
+    lowerMessage.includes("address") ||
+    lowerMessage.includes("where")
+  ) {
+    const locationLink = managerDetails?.locationLink || "https://maps.google.com/?q=Spa+Location";
+    const businessName = managerDetails?.businessName || "Our Spa";
+
+    return {
+      content: `📍 **We're located at:**\n${locationLink}\n\n✨ **Amenities:**\n• Free parking available\n• Garden courtyard access\n• Easy to find location\n\nNeed directions or prefer a call?`,
+      quickReplies: [
+        { text: "Call the Spa", action: "call_spa" },
+        { text: "Book an Appointment", action: "book_now" },
+        { text: "Claim Welcome Offer", action: "claim_offer" },
       ],
     };
   }
 
-  // Pricing
+  // Call SPA / talk to manager
   if (
-    action === "pricing" ||
-    lowerMessage.includes("price") ||
-    lowerMessage.includes("cost") ||
-    lowerMessage.includes("fee") ||
-    lowerMessage.includes("plan")
+    action === "call_spa" ||
+    lowerMessage.includes("call") ||
+    lowerMessage.includes("phone") ||
+    lowerMessage.includes("contact")
   ) {
+    const phone = managerDetails?.phone || "+91 9125846358";
+    const businessName = managerDetails?.businessName || "Our Spa";
+
     return {
-      content:
-        "💰 Transparent Pricing - 100% FREE!\n\n🎁 Free Forever Plan:\n✅ Unlimited appointments\n✅ Unlimited customers\n✅ Staff management\n✅ Basic analytics\n✅ Email support\n✅ Mobile app access\n✅ Online booking\n✅ Automated reminders\n\n💼 Professional Plan: $29/month\n✅ Everything in Free\n✅ Advanced analytics\n✅ Priority support\n✅ Payment integration\n✅ Custom branding\n✅ API access\n\n💡 No setup fees, no hidden costs!\n\nWhich plan suits you?",
+      content: `📞 **You can reach us directly at:**\n${phone}\n\nI'll also let our manager at ${businessName} know you're expecting a call.\n\nIs there anything else you'd like to arrange?`,
       quickReplies: [
-        { text: "Start free listing", action: "start_listing" },
-        { text: "View pricing page", action: "view_pricing" },
-        { text: "Compare plans", action: "compare_plans" },
+        { text: "Book an Appointment", action: "book_now" },
+        { text: "View Location", action: "spa_location" },
+        { text: "Talk with Manager", action: "talk_with_manager" },
       ],
     };
   }
 
-  // Customer Management
-  if (
-    action === "customer_management" ||
-    lowerMessage.includes("customer") ||
-    lowerMessage.includes("crm") ||
-    lowerMessage.includes("client")
-  ) {
+  // Thank you
+  if (lowerMessage.includes("thank")) {
     return {
       content:
-        "👥 Customer Relationship Management (CRM)\n\n📋 Features:\n\n• Customer Database\n  - Complete profiles\n  - Contact information\n  - Preferences & history\n\n• Customer Segmentation\n  - Group by behavior\n  - Target campaigns\n  - Personalized offers\n\n• Customer Analytics\n  - Lifetime value\n  - Visit frequency\n  - Spending patterns\n  - Churn analysis\n\n• Loyalty Programs\n  - Points system\n  - Rewards management\n  - Subscription plans\n\nWant details on any specific feature?",
+        "You're most welcome! 🌼\n\nWhenever you're ready for a little indulgence, I'm here to help you book it.",
       quickReplies: [
-        { text: "Loyalty programs", action: "loyalty" },
-        { text: "Customer analytics", action: "customer_analytics" },
-        { text: "Segmentation", action: "segmentation" },
-      ],
-    };
-  }
-
-  // Marketing
-  if (
-    action === "marketing" ||
-    lowerMessage.includes("marketing") ||
-    lowerMessage.includes("campaign") ||
-    lowerMessage.includes("promote") ||
-    lowerMessage.includes("advertise")
-  ) {
-    return {
-      content:
-        "📢 Marketing & Campaign Management\n\n🎯 Campaign Types:\n• Promotional campaigns\n• Seasonal offers\n• Loyalty programs\n• Birthday campaigns\n• Referral programs\n• Feedback requests\n• Reactivation campaigns\n\n📧 Channels:\n• Email marketing\n• SMS campaigns\n• WhatsApp messages\n• Push notifications\n• In-app notifications\n\n🤖 Automated Campaigns:\n• Drip campaigns\n• Trigger-based\n• Scheduled campaigns\n• Event-triggered\n\n📊 Campaign Analytics:\n• Open rates\n• Click rates\n• Conversion tracking\n• ROI analysis\n• A/B testing\n\nNeed help with campaigns?",
-      quickReplies: [
-        { text: "Create campaign", action: "create_campaign" },
-        { text: "Campaign templates", action: "templates" },
-        { text: "Campaign analytics", action: "campaign_analytics" },
-      ],
-    };
-  }
-
-  // Analytics
-  if (
-    action === "analytics" ||
-    lowerMessage.includes("analytics") ||
-    lowerMessage.includes("report") ||
-    lowerMessage.includes("statistics") ||
-    lowerMessage.includes("insights")
-  ) {
-    return {
-      content:
-        "📊 Analytics & Business Intelligence\n\n📈 Key Metrics:\n\n• Revenue Analytics\n  - Daily/weekly/monthly\n  - Service-wise revenue\n  - Staff performance\n  - Trend analysis\n\n• Appointment Analytics\n  - Booking trends\n  - No-show rates\n  - Peak hours\n  - Service popularity\n\n• Customer Analytics\n  - Customer lifetime value\n  - Retention rates\n  - New vs returning\n  - Customer segments\n\n• Staff Analytics\n  - Performance metrics\n  - Booking rates\n  - Revenue per staff\n  - Availability\n\n📱 Real-time Dashboard:\n• Live metrics\n• Visual charts\n• Quick insights\n• Trend indicators\n\nWant to see sample reports?",
-      quickReplies: [
-        { text: "Revenue analytics", action: "revenue_analytics" },
-        { text: "Customer insights", action: "customer_analytics" },
-        { text: "Custom reports", action: "custom_reports" },
+        { text: "Book an Appointment", action: "book_now" },
+        { text: "Claim Welcome Offer", action: "claim_offer" },
+        { text: "Call the Spa", action: "call_spa" },
       ],
     };
   }
@@ -176,43 +382,30 @@ const getBotResponse = (message, action = null, messageCount = 0) => {
   ) {
     return {
       content:
-        "Hello! 👋 Welcome!\n\nI'm your AI assistant. I can help with:\n\n✅ Free business listing\n✅ Appointment booking\n✅ Features & services\n✅ Pricing information\n✅ Customer management\n✅ Marketing campaigns\n✅ Analytics & reports\n✅ Technical support\n\nWhat would you like to know?",
+        "Hello there! 👋 Welcome to our spa sanctuary.\n\nI can help you:\n• Claim our welcome offer\n• Explore services & pricing\n• Reserve your perfect time\n• Get directions or speak with our manager\n\nWhat would you like to do first?",
       quickReplies: [
-        { text: "Free Business Listing", action: "business_listing" },
-        { text: "Appointment Booking", action: "appointment_booking" },
-        { text: "Features & Services", action: "features" },
-        { text: "Pricing Plans", action: "pricing" },
-      ],
-    };
-  }
-
-  // Thank you
-  if (lowerMessage.includes("thank")) {
-    return {
-      content: "You're very welcome! 😊\n\nIs there anything else I can help you with today?",
-      quickReplies: [
-        { text: "Free Business Listing", action: "business_listing" },
-        { text: "Appointment Booking", action: "appointment_booking" },
-        { text: "Features & Services", action: "features" },
-        { text: "Pricing Plans", action: "pricing" },
+        { text: "Claim Welcome Offer", action: "claim_offer" },
+        { text: "Services & Pricing", action: "services_pricing" },
+        { text: "Book an Appointment", action: "book_now" },
+        { text: "Call the Spa", action: "call_spa" },
       ],
     };
   }
 
   // Default response
   return {
-    content: `I understand you're asking about: "${message}"\n\nI can help you with:\n\n• Free business listing\n• Appointment booking system\n• Customer management (CRM)\n• Marketing campaigns\n• Analytics & reports\n• Pricing & plans\n• Staff management\n• Payment integration\n• Loyalty programs\n• Technical support\n\nPlease select a topic or ask a specific question!`,
+    content: `I hear you asking: "${message}"\n\nI'm here to help with anything spa-related—whether it's picking a treatment, reserving your spot, understanding pricing, or speaking with our manager.\n\nLet me know what you need or choose a quick option below to continue.`,
     quickReplies: [
-      { text: "Free Business Listing", action: "business_listing" },
-      { text: "Appointment Booking", action: "appointment_booking" },
-      { text: "Features & Services", action: "features" },
-      { text: "Pricing Plans", action: "pricing" },
+      { text: "Claim Welcome Offer", action: "claim_offer" },
+      { text: "Services & Pricing", action: "services_pricing" },
+      { text: "Book an Appointment", action: "book_now" },
+      { text: "Call the Spa", action: "call_spa" },
     ],
   };
 };
 
 // Send welcome message when new customer joins
-const sendWelcomeMessage = async (conversationId, managerId, managerName, customerName) => {
+const sendWelcomeMessage = async (conversationId, managerId, managerName, customerName, managerBusinessName) => {
   try {
     const conversation = await getConversationById(conversationId);
     if (!conversation) return null;
@@ -220,7 +413,9 @@ const sendWelcomeMessage = async (conversationId, managerId, managerName, custom
     // Only send welcome if auto-chat is enabled and it's a new conversation
     if (!conversation.autoChatEnabled) return null;
 
-    const welcomeData = getWelcomeMessage(managerName, customerName);
+    // Get manager details for location and phone
+    const managerDetails = await getManagerDetails(managerId);
+    const welcomeData = getWelcomeMessage(managerName, customerName, managerBusinessName, managerDetails);
 
     // Create welcome message from manager with quick replies encoded
     let welcomeContent = welcomeData.content;
@@ -236,10 +431,6 @@ const sendWelcomeMessage = async (conversationId, managerId, managerName, custom
       content: welcomeContent,
     });
 
-    // Store quick replies in message metadata (we'll use attachments or a custom field)
-    // For now, we'll encode quick replies in a special format in content or use replyTo field
-    // Actually, let's add quickReplies to the message model or store in metadata
-
     return welcomeMessage;
   } catch (error) {
     console.error("Failed to send welcome message:", error);
@@ -250,16 +441,19 @@ const sendWelcomeMessage = async (conversationId, managerId, managerName, custom
 // Process customer message and send auto-response
 const processCustomerMessage = async (conversationId, customerMessage, action = null) => {
   try {
-    const conversation = await Conversation.findById(conversationId);
+    const conversation = await Conversation.findById(conversationId).populate("manager").populate("customer");
     if (!conversation) return null;
 
     // Check if auto-chat is enabled
     if (!conversation.autoChatEnabled) return null;
 
+    // Get manager details - handle both populated and non-populated cases
+    const managerId = conversation.manager?._id || conversation.manager;
+    const managerDetails = await getManagerDetails(managerId);
+
     // Check if we've reached max messages
     if (conversation.autoChatMessageCount >= MAX_AUTO_CHAT_MESSAGES) {
       // Check if we've already sent the "talk with manager" message
-      // by checking the last few messages from manager
       const recentManagerMessages = await Message.find({
         conversation: conversationId,
         authorType: "manager",
@@ -286,7 +480,7 @@ const processCustomerMessage = async (conversationId, customerMessage, action = 
         const connectMessage = await createMessage({
           conversationId: conversationId.toString(),
           authorType: "manager",
-          authorId: conversation.manager.toString(),
+          authorId: managerId?.toString() || conversation.manager?.toString() || conversation.manager.toString(),
           content: connectMessageContent,
         });
 
@@ -297,8 +491,20 @@ const processCustomerMessage = async (conversationId, customerMessage, action = 
       return null;
     }
 
-    // Get bot response
-    const botResponse = getBotResponse(customerMessage, action, conversation.autoChatMessageCount);
+    // Get customer name from conversation
+    const customerName = conversation?.metadata?.customerName ||
+      conversation?.customer?.name ||
+      null;
+
+    // Get bot response (now async and receives conversation and managerDetails)
+    const botResponse = await getBotResponse(
+      customerMessage,
+      action,
+      conversation.autoChatMessageCount,
+      conversation,
+      managerDetails,
+      customerName,
+    );
 
     // If customer wants to talk with manager, disable auto-chat
     if (botResponse.disableAutoChat) {
@@ -308,11 +514,16 @@ const processCustomerMessage = async (conversationId, customerMessage, action = 
       const responseMessage = await createMessage({
         conversationId: conversationId.toString(),
         authorType: "manager",
-        authorId: conversation.manager.toString(),
+        authorId: managerId?.toString() || conversation.manager?.toString() || conversation.manager.toString(),
         content: botResponse.content,
       });
 
       return responseMessage;
+    }
+
+    // Save booking state if provided
+    if (botResponse.bookingData) {
+      await saveBookingState(conversationId, botResponse.bookingData);
     }
 
     // Increment message count
@@ -326,7 +537,7 @@ const processCustomerMessage = async (conversationId, customerMessage, action = 
       const quickRepliesJson = JSON.stringify(botResponse.quickReplies);
       messageContent += `\n<!-- QUICK_REPLIES:${quickRepliesJson} -->`;
     }
-    
+
     // After 10 messages, add "Talk with manager" option
     if (conversation.autoChatMessageCount >= MAX_AUTO_CHAT_MESSAGES - 1) {
       const talkWithManagerReply = { text: "Talk with my manager", action: "talk_with_manager" };
@@ -339,7 +550,7 @@ const processCustomerMessage = async (conversationId, customerMessage, action = 
     const responseMessage = await createMessage({
       conversationId: conversationId.toString(),
       authorType: "manager",
-      authorId: conversation.manager.toString(),
+      authorId: managerId?.toString() || conversation.manager?.toString() || conversation.manager.toString(),
       content: messageContent,
     });
 
@@ -372,4 +583,3 @@ module.exports = {
   getBotResponse,
   MAX_AUTO_CHAT_MESSAGES,
 };
-

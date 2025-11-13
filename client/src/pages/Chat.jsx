@@ -1843,6 +1843,11 @@ const Chat = () => {
             typingParticipants={typingParticipants}
             isLoading={isConversationLoading}
             conversationId={activeChatId}
+            phoneNumber={
+              isManager
+                ? activeConversation.customer?.phone ?? null
+                : activeConversation.manager?.mobileNumber ?? null
+            }
           />
         ) : (
           <div className="flex h-full flex-1 flex-col items-center justify-center gap-4 bg-[#111b21] text-center text-[#8696a0]">

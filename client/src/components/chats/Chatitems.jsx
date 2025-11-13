@@ -14,6 +14,143 @@ import { cn } from "../common/utils";
 import { REACTION_OPTIONS, REACTION_LABELS } from "../common/reactions";
 import { GrEmoji } from "react-icons/gr";
 
+// Component to format message content with markdown-like syntax
+const FormattedMessageContent = memo(function FormattedMessageContent({ content }) {
+    if (!content || typeof content !== "string") return null;
+
+    // Extract phone numbers (various formats)
+    const phoneRegex = /(\+?\d{1,4}?[-.\s]?\(?\d{1,4}?\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}[-.\s]?\d{1,9})/g;
+    
+    // Extract URLs
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    
+    // Extract markdown bold **text**
+    const boldRegex = /\*\*([^*]+)\*\*/g;
+    
+    // Extract markdown italic *text*
+    const italicRegex = /(?<!\*)\*([^*]+)\*(?!\*)/g;
+
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+
+    // Find all matches and their positions
+    const matches = [];
+    
+    // Find bold matches
+    while ((match = boldRegex.exec(content)) !== null) {
+        matches.push({ type: "bold", start: match.index, end: match.index + match[0].length, text: match[1] });
+    }
+    
+    // Find italic matches (not part of bold)
+    boldRegex.lastIndex = 0;
+    while ((match = italicRegex.exec(content)) !== null) {
+        // Check if this is not part of a bold match
+        const isPartOfBold = matches.some(m => m.type === "bold" && match.index >= m.start && match.index < m.end);
+        if (!isPartOfBold) {
+            matches.push({ type: "italic", start: match.index, end: match.index + match[0].length, text: match[1] });
+        }
+    }
+    
+    // Find URL matches
+    urlRegex.lastIndex = 0;
+    while ((match = urlRegex.exec(content)) !== null) {
+        matches.push({ type: "url", start: match.index, end: match.index + match[0].length, text: match[0] });
+    }
+    
+    // Find phone matches
+    phoneRegex.lastIndex = 0;
+    while ((match = phoneRegex.exec(content)) !== null) {
+        matches.push({ type: "phone", start: match.index, end: match.index + match[0].length, text: match[0] });
+    }
+
+    // Sort matches by position
+    matches.sort((a, b) => a.start - b.start);
+
+    // Remove overlapping matches (prioritize bold > italic > url > phone)
+    const priority = { bold: 4, italic: 3, url: 2, phone: 1 };
+    const filteredMatches = [];
+    for (const match of matches) {
+        const overlaps = filteredMatches.some(
+            m => (match.start < m.end && match.end > m.start) && priority[match.type] <= priority[m.type]
+        );
+        if (!overlaps) {
+            filteredMatches.push(match);
+        }
+    }
+    filteredMatches.sort((a, b) => a.start - b.start);
+
+    // Build parts array
+    filteredMatches.forEach((match) => {
+        // Add text before match
+        if (match.start > lastIndex) {
+            parts.push({ type: "text", content: content.substring(lastIndex, match.start) });
+        }
+        
+        // Add formatted match
+        if (match.type === "bold") {
+            parts.push({ type: "bold", content: match.text });
+        } else if (match.type === "italic") {
+            parts.push({ type: "italic", content: match.text });
+        } else if (match.type === "url") {
+            parts.push({ type: "url", content: match.text, href: match.text });
+        } else if (match.type === "phone") {
+            const cleanPhone = match.text.replace(/[^\d+]/g, "");
+            parts.push({ type: "phone", content: match.text, href: `tel:${cleanPhone}` });
+        }
+        
+        lastIndex = match.end;
+    });
+
+    // Add remaining text
+    if (lastIndex < content.length) {
+        parts.push({ type: "text", content: content.substring(lastIndex) });
+    }
+
+    // If no matches, return plain text
+    if (parts.length === 0) {
+        return <span>{content}</span>;
+    }
+
+    return (
+        <span>
+            {parts.map((part, index) => {
+                if (part.type === "bold") {
+                    return <strong key={index} className="font-semibold">{part.content}</strong>;
+                } else if (part.type === "italic") {
+                    return <em key={index} className="italic">{part.content}</em>;
+                } else if (part.type === "url") {
+                    return (
+                        <a
+                            key={index}
+                            href={part.href}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[#25d366] underline hover:text-[#20ba5a] transition-colors"
+                        >
+                            {part.content}
+                        </a>
+                    );
+                } else if (part.type === "phone") {
+                    return (
+                        <a
+                            key={index}
+                            href={part.href}
+                            className="text-[#25d366] underline hover:text-[#20ba5a] transition-colors"
+                        >
+                            {part.content}
+                        </a>
+                    );
+                } else {
+                    return <span key={index}>{part.content}</span>;
+                }
+            })}
+        </span>
+    );
+});
+
+FormattedMessageContent.displayName = "FormattedMessageContent";
+
 export const SystemBubble = memo(function SystemBubble({ message }) {
     return (
         <div className="mx-auto flex w-full max-w-[90%] flex-col items-center justify-center gap-2 rounded-3xl bg-[#1f2c34] px-3 py-2 text-center text-xs leading-relaxed text-[#8696a0] sm:max-w-md sm:flex-row sm:justify-start sm:gap-3 sm:px-4 sm:text-left sm:text-sm">
@@ -633,7 +770,9 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
 
             {displayContent ? (
                 <div className="flex items-end gap-2">
-                    <p className="flex-1 whitespace-pre-line break-words sm:break-normal">{displayContent}</p>
+                    <div className="flex-1 whitespace-pre-line break-words sm:break-normal">
+                        <FormattedMessageContent content={displayContent} />
+                    </div>
                     {renderMeta("ml-auto shrink-0 whitespace-nowrap text-right")}
                 </div>
             ) : null}
@@ -641,16 +780,46 @@ export const MessageBubble = forwardRef(function MessageBubble({ message, isOwn,
             {/* Quick Reply Buttons - Only show for manager messages when not own message */}
             {!isOwn && quickReplies && quickReplies.length > 0 && onQuickReply && (
                 <div className="mt-2 flex flex-wrap gap-2">
-                    {quickReplies.map((reply, index) => (
-                        <button
-                            key={index}
-                            type="button"
-                            onClick={() => onQuickReply(reply.action, reply.text, message.conversationId)}
-                            className="inline-flex items-center justify-center rounded-full border border-[#25d366]/40 bg-[#0b141a]/60 px-3 py-1.5 text-xs font-medium text-[#25d366] transition-colors duration-150 hover:bg-[#25d366]/10 hover:border-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60"
-                        >
-                            {reply.text}
-                        </button>
-                    ))}
+                    {quickReplies.map((reply, index) => {
+                        // Check if this is a call action
+                        const isCallAction = reply.action === "call_spa" || 
+                                          reply.text.toLowerCase().includes("call");
+                        
+                        // Extract phone number from message content if it's a call action
+                        let phoneNumber = null;
+                        if (isCallAction && displayContent) {
+                            const phoneMatch = displayContent.match(/(\+?\d{1,4}?[-.\s]?\(?\d{1,4}?\)?[-.\s]?\d{1,4}[-.\s]?\d{1,9}[-.\s]?\d{1,9})/);
+                            if (phoneMatch) {
+                                phoneNumber = phoneMatch[0].replace(/[^\d+]/g, "");
+                            }
+                        }
+
+                        const handleClick = () => {
+                            if (isCallAction && phoneNumber) {
+                                // Open phone dialer
+                                window.location.href = `tel:${phoneNumber}`;
+                            } else {
+                                // Normal quick reply action
+                                onQuickReply(reply.action, reply.text, message.conversationId);
+                            }
+                        };
+
+                        return (
+                            <button
+                                key={index}
+                                type="button"
+                                onClick={handleClick}
+                                className={cn(
+                                    "inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-xs font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2",
+                                    isCallAction && phoneNumber
+                                        ? "border-[#25d366]/60 bg-[#25d366]/20 text-[#25d366] hover:bg-[#25d366]/30 hover:border-[#25d366] focus-visible:ring-[#25d366]/60"
+                                        : "border-[#25d366]/40 bg-[#0b141a]/60 text-[#25d366] hover:bg-[#25d366]/10 hover:border-[#25d366] focus-visible:ring-[#25d366]/60"
+                                )}
+                            >
+                                {reply.text}
+                            </button>
+                        );
+                    })}
                 </div>
             )}
 

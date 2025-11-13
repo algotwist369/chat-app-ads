@@ -21,9 +21,14 @@ const ConversationMetadataSchema = new Schema(
       type: String,
       trim: true,
     },
+    bookingData: {
+      type: Schema.Types.Mixed,
+      default: null,
+    },
   },
   {
     _id: false,
+    strict: false, // Allow additional fields for flexibility
   },
 );
 

@@ -116,9 +116,10 @@ const customerJoin = asyncHandler(async (req, res) => {
         const { sendWelcomeMessage } = require("../services/autoChatService");
         const managerName = manager.managerName ?? manager.businessName ?? "Manager";
         const customerName = customer.name ?? "Customer";
+        const managerBusinessName = manager.businessName ?? "Our Spa";
         
         // Send welcome message asynchronously (don't block the response)
-        sendWelcomeMessage(conversation._id, manager._id, managerName, customerName)
+        sendWelcomeMessage(conversation._id, manager._id, managerName, customerName, managerBusinessName)
           .then((welcomeMessage) => {
             if (welcomeMessage && io) {
               const { serializeMessage } = require("../utils/serializers");

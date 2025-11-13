@@ -1,5 +1,5 @@
 import React from "react";
-import { FiArrowLeft, FiPhone, FiVideo, FiMoreVertical, FiSearch, FiCheckCircle } from "react-icons/fi";
+import { FiArrowLeft, FiPhone, FiVideo, FiMoreVertical, FiSearch, FiCheckCircle, FiX } from "react-icons/fi";
 import { cn } from "../common/utils";
 
 const presenceColors = {
@@ -30,6 +30,7 @@ const ChatHeader = ({
   compact = false,
   badge,
   className,
+  phoneNumber,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const [isSearchOpen, setIsSearchOpen] = React.useState(false);
@@ -153,26 +154,56 @@ const ChatHeader = ({
                 return next;
               })
             }
-            className="flex h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-all duration-200 hover:bg-[#202c33] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:h-11 sm:w-11"
+            className="hidden h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-all duration-200 hover:bg-[#202c33] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:flex sm:h-11 sm:w-11"
             aria-label="Search messages"
           >
             <FiSearch className="h-5 w-5" />
           </button>
           {isSearchOpen && (
-            <div className="absolute right-12 top-1/2 hidden w-64 -translate-y-1/2 rounded-2xl border border-[#1f2c34] bg-[#0b141a] px-3 py-2 shadow-lg shadow-black/40 sm:flex">
-              <input
-                type="text"
-                value={searchValue}
-                autoFocus
-                placeholder="Search conversation"
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setSearchValue(value);
-                  onSearch?.(value);
-                }}
-                className="w-full bg-transparent text-sm text-[#e9edef] placeholder:text-[#667781] focus:outline-none"
-              />
-            </div>
+            <>
+              {/* Mobile search input - full width */}
+              <div className="absolute left-0 right-0 top-full z-30 flex w-full border-b border-[#1f2c34] bg-[#0b141a] px-3 py-2 shadow-lg shadow-black/40 sm:hidden">
+                <input
+                  type="text"
+                  value={searchValue}
+                  autoFocus
+                  placeholder="Search conversation"
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setSearchValue(value);
+                    onSearch?.(value);
+                  }}
+                  className="w-full bg-transparent text-sm text-[#e9edef] placeholder:text-[#667781] focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSearchOpen(false);
+                    setSearchValue("");
+                    onSearch?.("");
+                  }}
+                  className="ml-2 flex h-8 w-8 items-center justify-center rounded-full text-[#8696a0] hover:bg-[#202c33] hover:text-[#25d366]"
+                  aria-label="Close search"
+                >
+                  <FiX className="h-4 w-4" />
+                </button>
+              </div>
+              {/* Desktop search input */}
+              <div className="absolute right-12 top-1/2 hidden w-64 -translate-y-1/2 rounded-2xl border border-[#1f2c34] bg-[#0b141a] px-3 py-2 shadow-lg shadow-black/40 sm:flex">
+                <input
+                  type="text"
+                  value={searchValue}
+                  autoFocus
+                  placeholder="Search conversation"
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setSearchValue(value);
+                    onSearch?.(value);
+                  }}
+                  className="w-full bg-transparent text-sm text-[#e9edef] placeholder:text-[#667781] focus:outline-none"
+                />
+              </div>
+            </>
           )}
         </div>
 
@@ -186,14 +217,24 @@ const ChatHeader = ({
           <FiVideo className="h-5 w-5" />
         </button>
 
-        <button
-          type="button"
-          onClick={onCall}
-          className="hidden h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-all duration-200 hover:bg-[#202c33] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:flex sm:h-11 sm:w-11"
-          aria-label="Start voice call"
-        >
-          <FiPhone className="h-5 w-5" />
-        </button>
+        {phoneNumber ? (
+          <a
+            href={`tel:${phoneNumber}`}
+            className="hidden h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-all duration-200 hover:bg-[#202c33] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:flex sm:h-11 sm:w-11"
+            aria-label="Start voice call"
+          >
+            <FiPhone className="h-5 w-5" />
+          </a>
+        ) : (
+          <button
+            type="button"
+            onClick={onCall}
+            className="hidden h-10 w-10 items-center justify-center rounded-full text-[#8696a0] transition-all duration-200 hover:bg-[#202c33] hover:text-[#25d366] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#25d366]/60 sm:flex sm:h-11 sm:w-11"
+            aria-label="Start voice call"
+          >
+            <FiPhone className="h-5 w-5" />
+          </button>
+        )}
 
         <div className="relative">
           <button
@@ -209,25 +250,68 @@ const ChatHeader = ({
           </button>
           {isMenuOpen && (
             <div className="absolute right-0 top-12 z-40 w-48 rounded-2xl border border-[#1f2c34] bg-[#0b141a] py-2 shadow-xl shadow-black/40">
+              {/* Search option for mobile - shown at top */}
+              <button
+                type="button"
+                onClick={() => {
+                  closeMenu();
+                  setIsSearchOpen((prev) => {
+                    const next = !prev;
+                    if (!next) {
+                      setSearchValue("");
+                      onSearch?.("");
+                    }
+                    return next;
+                  });
+                }}
+                className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm text-[#e9edef] hover:bg-[#23323c] hover:text-[#25d366] sm:hidden"
+              >
+                <FiSearch className="h-4 w-4" />
+                <span>Search</span>
+              </button>
               {[
                 { id: "mute", label: "Mute notifications" },
                 { id: "media", label: "Media, links, and docs" },
-                { id: "search", label: "Search" },
+                { id: "search", label: "Search", icon: FiSearch },
                 { id: "wallpaper", label: "Wallpaper" },
                 { id: "report", label: "Report" },
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => {
-                    closeMenu();
-                    onMore?.(item.id);
-                  }}
-                  className="flex w-full items-center px-4 py-2 text-left text-sm text-[#e9edef] hover:bg-[#23323c] hover:text-[#25d366]"
-                >
-                  {item.label}
-                </button>
-              ))}
+              ].map((item) => {
+                // Hide search item on mobile since we show it separately at the top
+                if (item.id === "search") return null;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      closeMenu();
+                      onMore?.(item.id);
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-2 text-left text-sm text-[#e9edef] hover:bg-[#23323c] hover:text-[#25d366]"
+                  >
+                    {item.icon && <item.icon className="h-4 w-4" />}
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+              {/* Search option for desktop - shown in list with icon */}
+              <button
+                type="button"
+                onClick={() => {
+                  closeMenu();
+                  setIsSearchOpen((prev) => {
+                    const next = !prev;
+                    if (!next) {
+                      setSearchValue("");
+                      onSearch?.("");
+                    }
+                    return next;
+                  });
+                }}
+                className="hidden w-full items-center gap-3 px-4 py-2 text-left text-sm text-[#e9edef] hover:bg-[#23323c] hover:text-[#25d366] sm:flex"
+              >
+                <FiSearch className="h-4 w-4" />
+                <span>Search</span>
+              </button>
             </div>
           )}
         </div>

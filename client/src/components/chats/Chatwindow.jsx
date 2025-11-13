@@ -150,6 +150,7 @@ const ChatWindow = ({
   conversationId,
   className,
   isLoading = false,
+  phoneNumber,
 }) => {
   const containerRef = React.useRef(null);
   const [searchTerm, setSearchTerm] = React.useState("");
@@ -242,6 +243,7 @@ const ChatWindow = ({
         onVideo={onVideo}
         onMore={onMore}
         onSearch={setSearchTerm}
+        phoneNumber={phoneNumber}
       />
 
       <div className="flex-1 overflow-hidden">
